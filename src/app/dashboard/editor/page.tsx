@@ -40,13 +40,13 @@ export default function EditorDashboard() {
 
   const [loading, setLoading] = useState(true);
   const [uploadingId, setUploadingId] = useState<string | null>(null);
-  
+
   // --- 새로 추가된 기능용 State ---
   const [selectedMonth, setSelectedMonth] = useState<string>("all");
-  
+
   // 월(colA) 목록 추출
   const monthOptions = Array.from(new Set(inputRecords.map(r => r.colA).filter(m => !!m))).sort().reverse();
-  
+
   // 선택된 월에 따라 필터링된 데이터
   const filteredInputRecords = selectedMonth === "all" ? inputRecords : inputRecords.filter(r => r.colA === selectedMonth);
   const filteredReportRecords = selectedMonth === "all" ? reportRecords : reportRecords; // 보고서는 월 필드가 없다면 우선 전체 표시 또는 동일하게 필터링 적용 가능
@@ -164,8 +164,8 @@ export default function EditorDashboard() {
       await fetch("/api/notion", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          totalSavedCount: recordsToSave.length, 
+        body: JSON.stringify({
+          totalSavedCount: recordsToSave.length,
           currentMonth: "결산",
           userName: userInfo?.userName || "담당자",
           profitCodes: userInfo?.profitCodes || [],
@@ -197,7 +197,7 @@ export default function EditorDashboard() {
         const row = [
           r.colA, r.rowIndex, r.downloadDate, r.code, r.classType1, r.classType2, r.className, r.studentName,
           r.startDate, r.endDate, r.school, r.grade, r.studentId, r.realDropDate, r.lastAttend,
-          r.vReason1, r.wReason2, r.yDetail?.replace(/,/g, " "), r.xFileLink, 
+          r.vReason1, r.wReason2, r.yDetail?.replace(/,/g, " "), r.xFileLink,
           r.zAdminReason1, r.aaAdminReason2, r.abAdminDetail,
           r.status === 'closed' ? '마감됨' : '작성가능'
         ];
@@ -230,11 +230,11 @@ export default function EditorDashboard() {
   const handleRequestEdit = async (record: typeof inputRecords[number]) => {
     const msg = prompt(`[${record.studentName}] 데이터 수정을 요청하시겠습니까?\n사유를 간단히 입력해주세요:`);
     if (msg === null) return;
-    
+
     try {
       const userInfoStr = localStorage.getItem("userInfo");
       const userInfo = userInfoStr ? JSON.parse(userInfoStr) : null;
-      
+
       await fetch("/api/notion", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -390,10 +390,10 @@ export default function EditorDashboard() {
 
                 {/* 입력 V, W, X, Y (마감 상태면 disabled) */}
                 <td>
-                  <select 
-                    className="input-field" 
-                    value={r.vReason1} 
-                    onChange={(e) => handleInputChange(r.id, "vReason1", e.target.value)} 
+                  <select
+                    className="input-field"
+                    value={r.vReason1}
+                    onChange={(e) => handleInputChange(r.id, "vReason1", e.target.value)}
                     style={{ minWidth: "120px" }}
                     disabled={isClosed}
                   >
@@ -404,11 +404,11 @@ export default function EditorDashboard() {
                   </select>
                 </td>
                 <td>
-                  <select 
-                    className="input-field" 
-                    value={r.wReason2} 
-                    onChange={(e) => handleInputChange(r.id, "wReason2", e.target.value)} 
-                    style={{ minWidth: "160px" }} 
+                  <select
+                    className="input-field"
+                    value={r.wReason2}
+                    onChange={(e) => handleInputChange(r.id, "wReason2", e.target.value)}
+                    style={{ minWidth: "160px" }}
                     disabled={!r.vReason1 || isClosed}
                   >
                     <option value="">- 선택 -</option>
@@ -425,31 +425,31 @@ export default function EditorDashboard() {
                   ) : (
                     <label style={{ cursor: isClosed ? "not-allowed" : "pointer", color: isClosed ? "var(--text-secondary)" : "var(--accent-primary)", fontSize: "0.80rem" }}>
                       ☁️ {isClosed ? "첨부불가" : "파일 첨부"}
-                      <input 
-                        type="file" 
-                        style={{ display: "none" }} 
+                      <input
+                        type="file"
+                        style={{ display: "none" }}
                         disabled={isClosed}
                         onChange={(e) => {
                           if (e.target.files && e.target.files[0]) handleFileUpload(r.id, e.target.files[0]);
-                        }} 
+                        }}
                       />
                     </label>
                   )}
                 </td>
                 <td style={{ borderRight: "1px solid rgba(255,255,255,0.1)" }}>
-                  <input 
-                    type="text" 
-                    className="input-field" 
-                    placeholder="상세 내용 기입" 
-                    value={r.yDetail} 
-                    onChange={e => handleInputChange(r.id, "yDetail", e.target.value)} 
-                    style={{ minWidth: "200px" }} 
+                  <input
+                    type="text"
+                    className="input-field"
+                    placeholder="상세 내용 기입"
+                    value={r.yDetail}
+                    onChange={e => handleInputChange(r.id, "yDetail", e.target.value)}
+                    style={{ minWidth: "200px" }}
                     disabled={isClosed}
                   />
                   {isClosed && (
                     <div style={{ marginTop: "0.5rem" }}>
-                      <span style={{display: 'inline-block', fontSize: '0.75rem', color: '#f87171', marginRight: "0.5rem"}}>🔒 마감됨</span>
-                      <button 
+                      <span style={{ display: 'inline-block', fontSize: '0.75rem', color: '#f87171', marginRight: "0.5rem" }}>🔒 마감됨</span>
+                      <button
                         onClick={() => handleRequestEdit(r)}
                         className="print-hide"
                         style={{ fontSize: "0.7rem", padding: "0.2rem 0.5rem", background: "rgba(239, 68, 68, 0.1)", border: "1px solid rgba(239, 68, 68, 0.3)", borderRadius: "4px", color: "white", cursor: "pointer" }}
@@ -481,14 +481,14 @@ export default function EditorDashboard() {
 
         {/* 툴바 및 필터 영역 (인쇄 시 숨김) */}
         <div className="print-hide" style={{ display: "flex", gap: "1rem", alignItems: "center", flexWrap: "wrap" }}>
-          
+
           {/* 월별 필터 드롭다운 */}
           {activeTab === "input" && (
             <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
               <span style={{ fontSize: "0.95rem", color: "var(--text-secondary)", fontWeight: 600 }}>📅 월:</span>
-              <select 
+              <select
                 className="filter-select"
-                value={selectedMonth} 
+                value={selectedMonth}
                 onChange={(e) => setSelectedMonth(e.target.value)}
               >
                 <option value="all">모든 달 보기 열기</option>
@@ -511,7 +511,7 @@ export default function EditorDashboard() {
 
           {activeTab === "input" && (
             <button className="btn-primary" onClick={handleFinalSubmit} style={{ marginLeft: "auto", fontSize: "1rem" }}>
-              ✅ 전체 저장 및 노션 전송
+              ✅ 전체저장
             </button>
           )}
         </div>
