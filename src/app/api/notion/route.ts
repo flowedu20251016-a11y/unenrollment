@@ -25,7 +25,7 @@ export async function POST(request: Request) {
     }
 
     let pageTitle = "";
-    const childrenBlocks = [];
+    const childrenBlocks: any[] = [];
     
     // 🔥 관리자 지정 노션 고유 ID (알람 푸시용)
     const ADMIN_NOTION_ID = "294d872b-594c-816a-8c71-0002b4adfb76";
@@ -62,7 +62,7 @@ export async function POST(request: Request) {
     } else {
       pageTitle = `[알림] 퇴원사유 작성 완료 (${codeString || '전체'})`;
       
-      const reporterTextBlocks = [];
+      const reporterTextBlocks: any[] = [];
       if (notionUserId) {
         reporterTextBlocks.push({ type: "mention", mention: { type: "user", user: { id: notionUserId } } });
         reporterTextBlocks.push({ type: "text", text: { content: ` (${userName}) 님이 ` } });

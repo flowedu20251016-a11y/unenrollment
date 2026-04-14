@@ -174,7 +174,7 @@ export default function EditorDashboard() {
       });
 
       alert("성공적으로 저장 및 알림이 전송되었습니다!");
-      fetchData(); // 재조회
+      fetchData(userInfo); // 재조회
     } catch (err) {
       alert(String(err));
     }
@@ -193,6 +193,7 @@ export default function EditorDashboard() {
     let csvContent = "\uFEFF"; // 한글 깨짐 방지 BOM
     if (activeTab === "input") {
       csvContent += "년월,NO,명단다운,수익코드,반형태1,반형태2,반명,학생명,시작일,종료일,학교명,학년,학번,퇴원처리일자,마지막출석,퇴원사유1,퇴원종류2,상세사유,증빙첨부링크,기조실사유1,기조실종류2,기조실상태,상태\n";
+      // @ts-ignore
       records.forEach((r: any) => {
         const row = [
           r.colA, r.rowIndex, r.downloadDate, r.code, r.classType1, r.classType2, r.className, r.studentName,
@@ -206,6 +207,7 @@ export default function EditorDashboard() {
       });
     } else {
       csvContent += "수익코드,사업부,브랜드,캠퍼스,최종퇴원율,목표퇴원율\n";
+      // @ts-ignore
       records.forEach((r: any) => {
         const row = [r.code, r.department, r.brand, r.campus, r.finalRate, r.targetRate];
         csvContent += row.join(",") + "\n";

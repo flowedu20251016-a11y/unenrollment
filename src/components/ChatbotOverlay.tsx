@@ -39,7 +39,7 @@ export default function ChatbotOverlay() {
       });
       const data = await res.json();
       setMessages(prev => [...prev, { role: "bot", content: data.reply }]);
-    } catch (err) {
+    } catch {
       setMessages(prev => [...prev, { role: "bot", content: "통신 오류가 발생했습니다." }]);
     } finally {
       setLoading(false);
