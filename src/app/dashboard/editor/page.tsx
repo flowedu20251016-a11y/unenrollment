@@ -505,8 +505,6 @@ export default function EditorDashboard() {
             {/* Q~U열 (매출/출석부재확인 등) */}
             <th>{headers.colQ || "Q열"}</th>
             <th>{headers.colR || "R열"}</th>
-            <th>{headers.colS || "S열"}</th>
-            <th>{headers.colT || "T열"}</th>
             <th>{headers.colU || "U열"}</th>
             <th style={{ borderRight: "1px solid rgba(255,255,255,0.1)" }}>사유(원문)</th>
 
