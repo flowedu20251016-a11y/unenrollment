@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
-import { getDriveInstance } from "@/lib/google";
-import stream from "stream";
+import { createClient } from "@supabase/supabase-js";
+
+const supabase = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_ANON_KEY!
+);
+
+const BUCKET = process.env.SUPABASE_BUCKET || "UNENROLLMENT";
 
 export async function POST(request: Request) {
   try {
@@ -11,47 +17,37 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
     }
 
-    const drive = getDriveInstance();
-    const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
-
-    if (!folderId) {
-      throw new Error("GOOGLE_DRIVE_FOLDER_ID is not configured");
-    }
-
-    // 파일 데이터를 Buffer로 변환 후 Readable Stream으로 변환
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
-    const bufferStream = new stream.PassThrough();
-    bufferStream.end(buffer);
 
-    const driveResponse = await drive.files.create({
-      requestBody: {
-        name: file.name,
-        parents: [folderId],
-      },
-      media: {
-        mimeType: file.type || "application/octet-stream",
-        body: bufferStream,
-      },
-      fields: "id, webViewLink",
-    });
+    // 메타데이터 추출 (클라이언트에서 전달)
+    const code = (formData.get("code") as string || "unknown").replace(/[^a-zA-Z0-9]/g, "_");
+    const studentName = (formData.get("studentName") as string || "unknown").replace(/[^a-zA-Z0-9가-힣]/g, "_");
+    const month = (formData.get("month") as string || "unknown").replace(/[^a-zA-Z0-9가-힣-]/g, "_");
 
-    // 누구나 읽을 수 있도록 허용 (선택사항, 필요 없으면 생략)
-    try {
-      await drive.permissions.create({
-        fileId: driveResponse.data.id!,
-        requestBody: {
-          role: "reader",
-          type: "anyone",
-        },
+    // 파일 확장자 추출
+    const ext = file.name.includes(".") ? file.name.split(".").pop() : "bin";
+
+    // 폴더: 수익코드 / 파일명: 수익코드_학생명_년월_타임스탬프.확장자
+    const fileName = `${code}/${code}_${studentName}_${month}_${Date.now()}.${ext}`;
+
+    const { error } = await supabase.storage
+      .from(BUCKET)
+      .upload(fileName, buffer, {
+        contentType: file.type || "application/octet-stream",
+        upsert: false,
       });
-    } catch (permError) {
-      console.error("Permission share error:", permError);
+
+    if (error) {
+      console.error("Supabase Upload Error:", error);
+      return NextResponse.json({ error: "파일 업로드 실패", detail: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ webViewLink: driveResponse.data.webViewLink });
-  } catch (error) {
+    const { data } = supabase.storage.from(BUCKET).getPublicUrl(fileName);
+
+    return NextResponse.json({ webViewLink: data.publicUrl });
+  } catch (error: any) {
     console.error("Upload Error:", error);
-    return NextResponse.json({ error: "Failed to upload file to Google Drive" }, { status: 500 });
+    return NextResponse.json({ error: "파일 업로드 실패", detail: error?.message || String(error) }, { status: 500 });
   }
 }

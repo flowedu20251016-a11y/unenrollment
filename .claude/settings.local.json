@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run:*)",
+      "Bash(taskkill /F /IM node.exe)",
+      "Bash(taskkill /PID 18068 /F)",
+      "Bash(cmd /c \"taskkill /PID 18068 /F\")",
+      "Bash(powershell -Command \"Stop-Process -Id 18068 -Force\")",
+      "Bash(powershell -Command \"Get-Process node -ErrorAction SilentlyContinue | Stop-Process -Force\")"
+    ]
+  }
+}

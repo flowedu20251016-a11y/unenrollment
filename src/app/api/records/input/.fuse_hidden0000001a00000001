@@ -9,26 +9,34 @@ export async function GET() {
   try {
     const sheets = getSheetsInstance();
 
-    // 1+2+3. 사유분류 & 헤더 & 데이터 동시 호출 (병렬 처리 — 속도 개선)
-    const [categoryResponse, headerResponse, dataResponse] = await Promise.all([
-      sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `사유분류!A2:C50` }),
-      sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `최종!A3:AZ3` }),
-      sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `최종!A4:AZ` }),
-    ]);
-
+    // 1. 사유분류 데이터 로드 (드롭다운 용도)
+    const categoryResponse = await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: `사유분류!A2:C50`,
+    });
     const categoryRows = categoryResponse.data.values || [];
+
+    // [{"분류1": "경고", "분류2": ["2회이상 경고"]}, ...]
     const categoryMap: Record<string, { label: string, requireProof: boolean }[]> = {};
     categoryRows.forEach(row => {
       const cat1 = row[0] || "";
       const cat2 = row[1] || "";
-      const requireProof = (row[2] || "").includes("증빙필수");
+      const proofStr = row[2] || "";
+      const requireProof = proofStr.includes("증빙필수");
+
       if (cat1 && cat2) {
         if (!categoryMap[cat1]) categoryMap[cat1] = [];
         categoryMap[cat1].push({ label: cat2, requireProof });
       }
     });
 
-    const h = headerResponse.data.values?.[0] ?? [];
+    // 2. 최종 헤더 로드 (동적 타이틀 표기 용도)
+    const headerResponse = await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: `최종!A3:AZ3` // 넉넉하게 AZ까지 불러옵니다.
+    });
+
+    const h = headerResponse.data.values && headerResponse.data.values[0] ? headerResponse.data.values[0] : [];
 
     // 💡 [개발자 가이드] 구글 시트의 열(Column)이 바뀌면 여기서 숫자를 조절하세요!
     // A열은 0, B열은 1, C열은 2, D열은 3 ... 이런 순서입니다.
@@ -36,18 +44,17 @@ export async function GET() {
       colA: h[0] || "년월", // A열 (0)
       downloadDate: h[2] || "명단다운", // C열 (2)
       code: h[3] || "수익코드", // D열 (3)
-      classType1: h[4] || "반형태1", // E열 (4)
-      classType2: h[5] || "반형태2", // F열 (5)
+      classType1: h[4] || "형태1", // E열 (4)
+      classType2: h[5] || "형태2", // F열 (5)
       className: h[6] || "반명", // G열 (6)
       studentName: h[7] || "학생명", // H열 (7)
       startDate: h[8] || "시작일", // I열 (8)
       endDate: h[9] || "종료일", // J열 (9)
       school: h[10] || "학교명", // K열 (10)
       grade: h[11] || "학년", // L열 (11)
-      reasonOriginal: h[13] || "사유(원문)", // N열 (13)
-      studentId: h[16] || "학번", // Q열 (16)
+      studentId: h[16] || "학번", // N열 (16)
       realDropDate: h[14] || "퇴원관리자", // O열 (14)
-      lastAttend: h[20] || "마지막출석일", // U열 (20)
+      lastAttend: h[15] || "처리자", // P열 (15)
 
       // --- 📊 Q~U열 (매출/출석부재확인 등) ---
       colQ: h[16] || "Q열", // Q열 (16)
@@ -57,10 +64,10 @@ export async function GET() {
       colU: h[20] || "U열", // U열 (20)
 
       // --- ✏️ 담당자 작성(입력) 영역 ---
-      vReason1: h[22] || "퇴원사유(분류1)", // W열 (22)
-      wReason2: h[23] || "퇴원종류(분류2)", // X열 (23)
-      yDetail: h[24] || "상세내역(필요시작성)", // Y열 (24)
-      xFileLink: h[25] || "증빙여부",           // Z열 (25)
+      vReason1: h[22] || "퇴원종류(분류1)", // W열 (22)
+      wReason2: h[23] || "퇴원사유(분류2)", // X열 (23)
+      yDetail: h[25] || "상세사유", // Z열 (25)
+      xFileLink: h[24] || "증징", // Y열 (24)
 
 
       // --- 🔒 기조실(관리자) 작성 및 마감 확인 영역 ---
@@ -70,8 +77,13 @@ export async function GET() {
       status: h[29] || "마감상태(AC열)", // AD열 (29) (임의로 배정. status값이 'closed'이면 마감으로 인식합니다)
     };
 
-    // 데이터는 위 Promise.all에서 이미 받아왔으므로 재사용
-    const rows = dataResponse.data.values || [];
+    // 3. 최종 실제 데이터 로드 (입력 폼 그리드 용도)
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: `최종!A4:AZ`,
+    });
+
+    const rows = response.data.values || [];
 
     const records = rows.map((row, index) => {
       const rowIndex = index + 4; // A4부터 시작이므로 index 0은 row 4
@@ -93,10 +105,9 @@ export async function GET() {
         endDate: row[9] || "",
         school: row[10] || "",
         grade: row[11] || "",
-        reasonOriginal: row[13] || "", // N열
         studentId: row[16] || "",
         realDropDate: row[14] || "",
-        lastAttend: row[20] || "", // U열
+        lastAttend: row[15] || "",
 
         // Q~U 열 (매출/출석부재확인 등)
         colQ: row[16] || "",
@@ -114,8 +125,8 @@ export async function GET() {
         aaAdminReason2: row[27] || "",
         abAdminDetail: row[28] || "",
 
-        // 🔒 마감 여부 — AD열(29)에 'closed'가 있을 때만 잠금 (관리자가 명시적으로 마감해야 함)
-        status: row[29] === 'closed' ? 'closed' : 'pending'
+        // 🔒 마감 여부 (AC: 28 열을 쓰거나 기조실 관리자가 입력했으면 마감으로 처리 가능)
+        status: row[28] || (row[25] ? 'closed' : 'pending') // 기조실이 사유를 하나라도 적었으면 자동으로 잠금
       };
     }).filter(r => r.code); // 수익코드가 있는 줄만
 
@@ -140,16 +151,14 @@ export async function POST(request: Request) {
     // 🔥 관리자가 넘겨준 '수정 (마감/해제)' 명령일 경우
     if (body.action === "admin_save") {
       data = updates.map((u: any) => ({
-        range: `최종!AA${u.rowIndex}:AD${u.rowIndex}`,
+        range: `최종!Z${u.rowIndex}:AC${u.rowIndex}`,
         values: [[u.zAdminReason1 || "", u.aaAdminReason2 || "", u.abAdminDetail || "", u.status || ""]]
-        // AA(26)=사유, AB(27)=종류, AC(28)=비고, AD(29)=마감상태
       }));
     } else {
       // 일반 담당자일 경우
       data = updates.map((u: any) => ({
-        range: `최종!W${u.rowIndex}:Z${u.rowIndex}`,
-        values: [[u.vReason1 || "", u.wReason2 || "", u.yDetail || "", u.xFileLink || ""]]
-        // W=vReason1, X=wReason2, Y=yDetail(상세), Z=xFileLink(증빙)
+        range: `최종!V${u.rowIndex}:Y${u.rowIndex}`,
+        values: [[u.vReason1 || "", u.wReason2 || "", u.xFileLink || "", u.yDetail || ""]]
       }));
     }
 

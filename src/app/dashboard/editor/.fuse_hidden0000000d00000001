@@ -16,9 +16,8 @@ interface ReportRecordType {
 // --- 신규 입력 폼 (시트3/최종) 용 스키마 ---
 interface InputRecordType {
   id: string; rowIndex: number;
-  colA: string; downloadDate: string; code: string; classType1: string; classType2: string; className: string;
-  studentName: string; startDate: string; endDate: string; school: string; grade: string;
-  studentId: string; realDropDate: string; lastAttend: string; reasonOriginal: string;
+  colA: string; downloadDate: string; code: string; classType1: string; classType2: string; className: string; studentName: string;
+  startDate: string; endDate: string; school: string; grade: string; studentId: string; realDropDate: string; lastAttend: string;
   colQ: string; colR: string; colS: string; colT: string; colU: string;
   vReason1: string; wReason2: string; xFileLink: string; yDetail: string; zAdminReason1: string; aaAdminReason2: string; abAdminDetail: string;
   status?: string;
@@ -51,20 +50,6 @@ export default function EditorDashboard() {
   // 분류별 통계 펼침 여부
   const [showStats, setShowStats] = useState(false);
 
-  // 컬럼 정렬
-  const [sortConfig, setSortConfig] = useState<{ key: keyof InputRecordType; dir: "asc" | "desc" } | null>(null);
-
-  const handleSort = (key: keyof InputRecordType) => {
-    setSortConfig(prev =>
-      prev?.key === key ? { key, dir: prev.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" }
-    );
-  };
-
-  const sortArrow = (key: keyof InputRecordType) => {
-    if (sortConfig?.key !== key) return " ↕";
-    return sortConfig.dir === "asc" ? " ↑" : " ↓";
-  };
-
   // 월(colA) 목록 추출
   const monthOptions = useMemo(
     () => Array.from(new Set(inputRecords.map(r => r.colA).filter(Boolean))).sort().reverse(),
@@ -80,52 +65,6 @@ export default function EditorDashboard() {
     // 데이터 로딩 전 fallback
     return (userInfo.profitCodes || []) as string[];
   }, [inputRecords, userInfo]);
-
-  // 월 필터만 적용한 레코드 (코드 선택과 무관하게 통계용)
-  const monthFilteredRecords = useMemo(() =>
-    selectedMonth === "all" ? inputRecords : inputRecords.filter(r => r.colA === selectedMonth),
-    [inputRecords, selectedMonth]
-  );
-
-  // 수익코드별 상태 통계
-  const codeStats = useMemo(() => {
-    const stats: Record<string, { total: number; written: number; allClosed: boolean }> = {};
-    availableCodes.forEach(code => {
-      const recs = monthFilteredRecords.filter(r => r.code === code);
-      stats[code] = {
-        total: recs.length,
-        written: recs.filter(r => r.vReason1).length,
-        allClosed: recs.length > 0 && recs.every(r => r.status === "closed"),
-      };
-    });
-    return stats;
-  }, [monthFilteredRecords, availableCodes]);
-
-  // 수익코드별 마감/해제 (관리자 전용)
-  const handleCodeClose = async (code: string, action: "close" | "open") => {
-    const recs = monthFilteredRecords.filter(r => r.code === code);
-    if (recs.length === 0) return;
-    if (!confirm(`[${code}] ${recs.length}건을 ${action === "close" ? "마감" : "마감 해제"}하시겠습니까?`)) return;
-    try {
-      const updates = recs.map(r => ({
-        rowIndex: r.rowIndex,
-        zAdminReason1: r.zAdminReason1,
-        aaAdminReason2: r.aaAdminReason2,
-        abAdminDetail: r.abAdminDetail,
-        status: action === "close" ? "closed" : "pending",
-      }));
-      const res = await fetch("/api/records/input", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "admin_save", updates }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        alert(`${action === "close" ? "마감" : "마감 해제"} 완료!`);
-        fetchData(userInfo);
-      }
-    } catch { alert("오류가 발생했습니다."); }
-  };
 
   // 코드 토글
   const toggleCode = (code: string) => {
@@ -143,22 +82,14 @@ export default function EditorDashboard() {
     }
   };
 
-  // 월 + 수익코드 복합 필터 + 정렬
+  // 월 + 수익코드 복합 필터
   const filteredInputRecords = useMemo(() => {
-    let list = inputRecords.filter(r => {
+    return inputRecords.filter(r => {
       const monthMatch = selectedMonth === "all" || r.colA === selectedMonth;
       const codeMatch = selectedCodes.length === 0 || selectedCodes.includes(r.code);
       return monthMatch && codeMatch;
     });
-    if (sortConfig) {
-      list = [...list].sort((a, b) => {
-        const va = String(a[sortConfig.key] ?? "");
-        const vb = String(b[sortConfig.key] ?? "");
-        return sortConfig.dir === "asc" ? va.localeCompare(vb, "ko") : vb.localeCompare(va, "ko");
-      });
-    }
-    return list;
-  }, [inputRecords, selectedMonth, selectedCodes, sortConfig]);
+  }, [inputRecords, selectedMonth, selectedCodes]);
 
   const filteredReportRecords = selectedMonth === "all" ? reportRecords : reportRecords;
 
@@ -202,16 +133,12 @@ export default function EditorDashboard() {
   const fetchData = async (user: any) => {
     setLoading(true);
     try {
-      // 두 API를 동시에 호출 (병렬 처리)
-      const [reportRes, inputRes] = await Promise.all([
-        fetch("/api/records", { cache: "no-store" }),
-        fetch("/api/records/input", { cache: "no-store" }),
-      ]);
-      const [reportData, inputData] = await Promise.all([
-        reportRes.json(),
-        inputRes.json(),
-      ]);
+      const reportRes = await fetch("/api/records", { cache: "no-store" });
+      const reportData = await reportRes.json();
       let rRecords = reportData.records || [];
+
+      const inputRes = await fetch("/api/records/input", { cache: "no-store" });
+      const inputData = await inputRes.json();
       let iRecords = inputData.records || [];
 
       if (user && user.role !== "admin") {
@@ -221,29 +148,7 @@ export default function EditorDashboard() {
       }
 
       setReportRecords(rRecords);
-
-      // 임시저장 데이터가 있으면 복원 여부 확인
-      const draftKey = `dropout_draft_${user?.userid}`;
-      const draft = localStorage.getItem(draftKey);
-      if (draft) {
-        try {
-          const savedRecords: InputRecordType[] = JSON.parse(draft);
-          // 서버 데이터와 id 목록이 동일할 때만 복원 제안
-          const isSameSet = savedRecords.length === iRecords.length &&
-            savedRecords.every((s: InputRecordType) => iRecords.some((r: any) => r.id === s.id));
-          if (isSameSet && window.confirm("저장된 임시데이터가 있습니다. 불러오시겠습니까?\n(취소 시 서버 데이터로 표시됩니다)")) {
-            setInputRecords(savedRecords);
-          } else {
-            setInputRecords(iRecords);
-            if (!isSameSet) localStorage.removeItem(draftKey); // 구버전 draft 삭제
-          }
-        } catch {
-          setInputRecords(iRecords);
-        }
-      } else {
-        setInputRecords(iRecords);
-      }
-
+      setInputRecords(iRecords);
       setCategories(inputData.categories || {});
       setHeaders(inputData.headers || {});
     } catch (err) {
@@ -275,12 +180,8 @@ export default function EditorDashboard() {
   const handleFileUpload = async (id: string, file: File) => {
     if (!file) return;
     setUploadingId(id);
-    const record = inputRecords.find(r => r.id === id);
     const formData = new FormData();
     formData.append("file", file);
-    formData.append("code", record?.code || "unknown");
-    formData.append("studentName", record?.studentName || "unknown");
-    formData.append("month", record?.colA || "unknown");
 
     try {
       const res = await fetch("/api/upload", { method: "POST", body: formData });
@@ -289,22 +190,12 @@ export default function EditorDashboard() {
         handleInputChange(id, "xFileLink", data.webViewLink);
         alert("업로드 성공!");
       } else {
-        alert("업로드 실패: " + data.error + (data.detail ? "\n\n상세: " + data.detail : ""));
+        alert("업로드 실패: " + data.error);
       }
-    } catch (err: any) {
-      alert("업로드 중 오류 발생: " + (err?.message || String(err)));
+    } catch (err) {
+      alert("업로드 중 오류 발생");
     } finally {
       setUploadingId(null);
-    }
-  };
-
-  const handleTempSave = () => {
-    if (!userInfo) return;
-    try {
-      localStorage.setItem(`dropout_draft_${userInfo.userid}`, JSON.stringify(inputRecords));
-      alert("임시저장 완료!\n페이지를 새로고침해도 내용이 유지됩니다.");
-    } catch {
-      alert("임시저장 실패");
     }
   };
 
@@ -339,7 +230,6 @@ export default function EditorDashboard() {
         })
       });
 
-      localStorage.removeItem(`dropout_draft_${userInfo?.userid}`);
       alert("성공적으로 저장 및 알림이 전송되었습니다!");
       fetchData(userInfo);
     } catch (err) {
@@ -419,75 +309,40 @@ export default function EditorDashboard() {
   // 렌더링 부속물
   // -----------------------------------------------------
 
-  // 수익코드 필터 UI
+  // 수익코드 필터 UI (코드가 1개 이상이면 항상 표시)
   const renderCodeFilter = () => {
     if (availableCodes.length === 0) return null;
     const allSelected = selectedCodes.length === 0 || selectedCodes.length === availableCodes.length;
-    const isAdmin = userInfo?.role === "admin";
 
     return (
       <div style={{ padding: "0.6rem 1rem", borderBottom: "1px solid rgba(255,255,255,0.08)", display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap", background: "rgba(255,255,255,0.02)" }}>
-        <span style={{ fontSize: "0.82rem", color: "var(--text-secondary)", fontWeight: 600, whiteSpace: "nowrap" }}>수익코드:</span>
-
-        {/* 전체 버튼 */}
-        <button onClick={toggleAllCodes} style={{
-          padding: "0.2rem 0.7rem", borderRadius: "999px", fontSize: "0.78rem", cursor: "pointer",
-          border: allSelected ? "1px solid #6366f1" : "1px solid rgba(255,255,255,0.2)",
-          background: allSelected ? "rgba(99,102,241,0.25)" : "transparent",
-          color: allSelected ? "#a5b4fc" : "var(--text-secondary)",
-        }}>전체</button>
-
-        {availableCodes.map(code => {
+        <span style={{ fontSize: "0.82rem", color: "var(--text-secondary)", fontWeight: 600, whiteSpace: "nowrap" }}>수익코드 필터:</span>
+        <button
+          onClick={toggleAllCodes}
+          style={{
+            padding: "0.2rem 0.7rem", borderRadius: "999px", fontSize: "0.78rem", cursor: "pointer",
+            border: allSelected ? "1px solid #6366f1" : "1px solid rgba(255,255,255,0.2)",
+            background: allSelected ? "rgba(99,102,241,0.25)" : "transparent",
+            color: allSelected ? "#a5b4fc" : "var(--text-secondary)",
+          }}
+        >
+          전체
+        </button>
+        {availableCodes.map((code) => {
           const active = selectedCodes.includes(code);
-          const stat = codeStats[code] || { total: 0, written: 0, allClosed: false };
-          const statusLabel = stat.allClosed ? "🔒 마감됨"
-            : stat.total === 0 || stat.written === 0 ? "미작성"
-            : stat.written === stat.total ? "전송완료"
-            : "작성중";
-          const statusColor = stat.allClosed ? "#f87171"
-            : stat.written === 0 ? "var(--text-secondary)"
-            : stat.written === stat.total ? "#34d399"
-            : "#fbbf24";
-
           return (
-            <div key={code} style={{ display: "flex", alignItems: "center", gap: "0.25rem" }}>
-              {/* 코드 선택 버튼 + 상태 */}
-              <button onClick={() => toggleCode(code)} style={{
-                padding: "0.25rem 0.8rem", borderRadius: "999px", fontSize: "0.78rem", cursor: "pointer",
+            <button
+              key={code}
+              onClick={() => toggleCode(code)}
+              style={{
+                padding: "0.2rem 0.7rem", borderRadius: "999px", fontSize: "0.78rem", cursor: "pointer",
                 border: active ? "1px solid #6366f1" : "1px solid rgba(255,255,255,0.2)",
                 background: active ? "rgba(99,102,241,0.25)" : "transparent",
                 color: active ? "#a5b4fc" : "var(--text-secondary)",
-                display: "flex", alignItems: "center", gap: "0.4rem",
-              }}>
-                <span style={{ fontWeight: 600 }}>{code}</span>
-                <span style={{ fontSize: "0.7rem", color: statusColor, whiteSpace: "nowrap" }}>
-                  {statusLabel}
-                  {!stat.allClosed && stat.total > 0 && (
-                    <span style={{ opacity: 0.7 }}> {stat.written}/{stat.total}</span>
-                  )}
-                </span>
-              </button>
-
-              {/* 관리자 전용: 마감/해제 버튼 */}
-              {isAdmin && stat.total > 0 && (
-                <button
-                  onClick={() => handleCodeClose(code, stat.allClosed ? "open" : "close")}
-                  style={{
-                    padding: "0.15rem 0.5rem", borderRadius: "4px", fontSize: "0.7rem", cursor: "pointer",
-                    border: stat.allClosed
-                      ? "1px solid rgba(251,191,36,0.5)"
-                      : "1px solid rgba(239,68,68,0.4)",
-                    background: stat.allClosed
-                      ? "rgba(251,191,36,0.12)"
-                      : "rgba(239,68,68,0.12)",
-                    color: stat.allClosed ? "#fbbf24" : "#f87171",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {stat.allClosed ? "해제" : "마감"}
-                </button>
-              )}
-            </div>
+              }}
+            >
+              {code}
+            </button>
           );
         })}
       </div>
@@ -499,18 +354,18 @@ export default function EditorDashboard() {
     <div>
       {/* 요약 바 */}
       <div style={{ padding: "0.6rem 1rem", borderBottom: showStats ? "none" : "1px solid rgba(255,255,255,0.08)", display: "flex", alignItems: "center", gap: "1.5rem", flexWrap: "wrap", background: "rgba(255,255,255,0.02)", fontSize: "0.82rem" }}>
-        {reasonStats.byCategory.length > 0 && (
-          <button
-            onClick={() => setShowStats(s => !s)}
-            style={{ padding: "0.2rem 0.7rem", fontSize: "0.78rem", borderRadius: "6px", border: "1px solid rgba(255,255,255,0.2)", background: "transparent", color: "var(--text-secondary)", cursor: "pointer" }}
-          >
-            {showStats ? "▲ 분류별 닫기" : "▼ 분류별 상세"}
-          </button>
-        )}
         <span style={{ color: "var(--text-secondary)" }}>총 <b style={{ color: "var(--text-primary)" }}>{reasonStats.totalRecords}</b>건</span>
         <span style={{ color: "#a5b4fc" }}>사업부 작성 <b>{reasonStats.editorTotal}</b>건</span>
         <span style={{ color: "#34d399" }}>기조실 확정 <b>{reasonStats.adminTotal}</b>건</span>
         <span style={{ color: "#f87171" }}>미작성 <b>{reasonStats.totalRecords - reasonStats.editorTotal}</b>건</span>
+        {reasonStats.byCategory.length > 0 && (
+          <button
+            onClick={() => setShowStats(s => !s)}
+            style={{ marginLeft: "auto", padding: "0.2rem 0.7rem", fontSize: "0.78rem", borderRadius: "6px", border: "1px solid rgba(255,255,255,0.2)", background: "transparent", color: "var(--text-secondary)", cursor: "pointer" }}
+          >
+            {showStats ? "▲ 분류별 닫기" : "▼ 분류별 상세"}
+          </button>
+        )}
       </div>
 
       {/* 분류별 상세 (펼쳐질 때만) */}
@@ -627,67 +482,79 @@ export default function EditorDashboard() {
       <table className="data-table" style={{ borderCollapse: "collapse", fontSize: "0.80rem" }}>
         <thead>
           <tr>
-            <th rowSpan={2} style={{ background: "rgba(255,255,255,0.04)", whiteSpace: "nowrap" }}>#</th>
-            <th colSpan={3} style={{ background: "rgba(60,60,60,0.6)", borderRight: "1px solid rgba(255,255,255,0.1)" }}>기조실 확정</th>
+            <th colSpan={18} style={{ background: "rgba(255,255,255,0.05)", borderRight: "1px solid rgba(255,255,255,0.1)" }}>퇴원생 정보</th>
             <th colSpan={4} style={{ background: "rgba(99,102,241,0.2)", borderRight: "1px solid rgba(255,255,255,0.1)", color: "#a5b4fc" }}>사업부 작성</th>
-            <th colSpan={11} style={{ background: "rgba(255,255,255,0.05)" }}>퇴원생 정보</th>
+            <th colSpan={3} style={{ background: "rgba(60,60,60,0.5)" }}>기조실 확정</th>
           </tr>
           <tr style={{ background: "rgba(255,255,255,0.02)", color: "var(--text-secondary)", fontSize: "0.75rem" }}>
-            {/* 기조실 확정 3종 */}
+            {/* 기본정보 */}
+            <th>{headers.colA || "년월"}</th>
+            <th>{headers.downloadDate || "명단다운"}</th>
+            <th>{headers.code || "수익코드"}</th>
+            <th>{headers.classType1 || "형태1"}</th>
+            <th>{headers.classType2 || "형태2"}</th>
+            <th>{headers.className || "반명"}</th>
+            <th>{headers.studentName || "학생명"}</th>
+            <th>{headers.startDate || "시작일"}</th>
+            <th>{headers.endDate || "종료일"}</th>
+            <th>{headers.school || "학교명"}</th>
+            <th>{headers.grade || "학년"}</th>
+            <th>{headers.studentId || "학번"}</th>
+            <th>{headers.realDropDate || "퇴원처리일자"}</th>
+            <th>{headers.lastAttend || "마지막출석"}</th>
+            {/* Q~U열 (매출/출석부재확인 등) */}
+            <th>{headers.colQ || "Q열"}</th>
+            <th>{headers.colR || "R열"}</th>
+            <th>{headers.colU || "U열"}</th>
+            <th style={{ borderRight: "1px solid rgba(255,255,255,0.1)" }}>사유(원문)</th>
+
+            {/* 담당자 작성 4종 */}
+            <th style={{ color: "#fff" }}>{headers.vReason1 || "퇴원사유(분류1)"}</th>
+            <th style={{ color: "#fff" }}>{headers.wReason2 || "퇴원종류(분류2)"}</th>
+            <th style={{ color: "#fff" }}>{headers.yDetail || "상세사유"}</th>
+            <th style={{ borderRight: "1px solid rgba(255,255,255,0.1)", color: "#fff" }}>{headers.xFileLink || "증빙 첨부파일"}</th>
+            {/* 기조실 작성 3종 */}
             <th>{headers.zAdminReason1 || "사유(기조실)"}</th>
             <th>{headers.aaAdminReason2 || "종류(기조실)"}</th>
-            <th style={{ borderRight: "1px solid rgba(255,255,255,0.1)" }}>{headers.abAdminDetail || "상세(기조실)"}</th>
-            {/* 사업부 작성 4종 */}
-            <th style={{ color: "#a5b4fc" }}>{headers.vReason1 || "퇴원사유(분류1)"}</th>
-            <th style={{ color: "#a5b4fc" }}>{headers.wReason2 || "퇴원종류(분류2)"}</th>
-            <th style={{ color: "#a5b4fc" }}>{headers.xFileLink || "증빙여부"}</th>
-            <th style={{ borderRight: "1px solid rgba(255,255,255,0.1)", color: "#a5b4fc" }}>{headers.yDetail || "상세내역"}</th>
-            {/* 퇴원생 정보 11종 — 클릭 시 정렬 */}
-            {([
-              ["studentName", "학생명"],
-              ["school", "학교명"],
-              ["grade", "학년"],
-              ["lastAttend", "마지막출석일"],
-              ["reasonOriginal", "사유원문"],
-              ["classType2", "반형태2"],
-              ["className", "반명"],
-              ["startDate", "시작일"],
-              ["endDate", "종료일"],
-              ["code", "수익코드"],
-              ["downloadDate", "다운일자"],
-            ] as [keyof InputRecordType, string][]).map(([key, fallback]) => (
-              <th key={String(key)} onClick={() => handleSort(key)}
-                style={{ cursor: "pointer", userSelect: "none", whiteSpace: "nowrap" }}>
-                {headers[key] || fallback}{sortArrow(key)}
-              </th>
-            ))}
+            <th>{headers.abAdminDetail || "상세(기조실)"}</th>
           </tr>
         </thead>
         <tbody>
-          {filteredInputRecords.map((r, idx) => {
+          {filteredInputRecords.map((r) => {
             const currentOptions = categories[r.vReason1] || [];
             const isClosed = r.status === "closed";
 
             return (
               <tr key={r.id}>
-                {/* # */}
-                <td style={{ color: "var(--text-secondary)", textAlign: "center" }}>{idx + 1}</td>
+                <td style={{ color: "var(--text-secondary)" }}>{r.colA}</td>
+                <td>{r.downloadDate}</td>
+                <td style={{ color: "var(--text-primary)", fontWeight: "bold" }}>{r.code}</td>
+                <td>{r.classType1}</td>
+                <td>{r.classType2}</td>
+                <td>{r.className}</td>
+                <td style={{ color: "#60a5fa", fontWeight: "bold" }}>{r.studentName}</td>
+                <td>{r.startDate}</td>
+                <td>{r.endDate}</td>
+                <td>{r.school}</td>
+                <td>{r.grade}</td>
+                <td>{r.studentId}</td>
+                <td>{r.realDropDate}</td>
+                <td>{r.lastAttend}</td>
+                {/* Q~U열 (S,T 제거됨 — th 순서와 동일하게) */}
+                <td style={{ color: "var(--text-secondary)" }}>{r.colQ || "-"}</td>
+                <td style={{ color: "var(--text-secondary)" }}>{r.colR || "-"}</td>
+                <td style={{ color: "var(--text-secondary)" }}>{r.colU || "-"}</td>
+                <td style={{ borderRight: "1px solid rgba(255,255,255,0.1)" }}>-</td>
 
-                {/* 기조실 확정 3종 */}
-                <td style={{ opacity: 0.7 }}>{r.zAdminReason1 || "-"}</td>
-                <td style={{ opacity: 0.7 }}>{r.aaAdminReason2 || "-"}</td>
-                <td style={{ opacity: 0.7, borderRight: "1px solid rgba(255,255,255,0.1)" }}>
-                  {r.abAdminDetail || "-"}
-                  {isClosed && (
-                    <span style={{ marginLeft: "0.4rem", fontSize: "0.7rem", color: "#f87171" }}>🔒마감</span>
-                  )}
-                </td>
-
-                {/* 사업부 작성 4종 */}
+                {/* 사업부 작성: 퇴원사유 → 퇴원종류 → 상세사유 → 증빙첨부 (th 순서와 동일) */}
                 <td>
-                  <select className="input-field" value={r.vReason1}
+                  <select
+                    className="input-field"
+                    value={r.vReason1}
                     onChange={(e) => handleInputChange(r.id, "vReason1", e.target.value)}
-                    style={{ minWidth: "110px" }} disabled={isClosed}>
+                    style={{ minWidth: "120px" }}
+                    disabled={isClosed}
+                  >
                     <option value="">- 선택 -</option>
                     {Object.keys(categories).map(cat => (
                       <option key={cat} value={cat}>{cat}</option>
@@ -695,54 +562,65 @@ export default function EditorDashboard() {
                   </select>
                 </td>
                 <td>
-                  <select className="input-field" value={r.wReason2}
+                  <select
+                    className="input-field"
+                    value={r.wReason2}
                     onChange={(e) => handleInputChange(r.id, "wReason2", e.target.value)}
-                    style={{ minWidth: "140px" }} disabled={!r.vReason1 || isClosed}>
+                    style={{ minWidth: "160px" }}
+                    disabled={!r.vReason1 || isClosed}
+                  >
                     <option value="">- 선택 -</option>
                     {currentOptions.map(opt => (
-                      <option key={opt.label} value={opt.label}>{opt.label}{opt.requireProof ? " (증빙필수)" : ""}</option>
+                      <option key={opt.label} value={opt.label}>{opt.label} {opt.requireProof ? "(증빙필수)" : ""}</option>
                     ))}
                   </select>
                 </td>
                 <td>
-                  {r.xFileLink ? (
-                    <a href={r.xFileLink} target="_blank" rel="noreferrer" style={{ color: "#34d399" }}>파일 보기</a>
-                  ) : uploadingId === r.id ? (
-                    <span style={{ color: "var(--text-secondary)" }}>업로드 중...</span>
-                  ) : (
-                    <label style={{ cursor: isClosed ? "not-allowed" : "pointer", color: isClosed ? "var(--text-secondary)" : "var(--accent-primary)", fontSize: "0.80rem" }}>
-                      {isClosed ? "첨부불가" : "파일 첨부"}
-                      <input type="file" style={{ display: "none" }} disabled={isClosed}
-                        onChange={(e) => { if (e.target.files?.[0]) handleFileUpload(r.id, e.target.files[0]); }} />
-                    </label>
-                  )}
-                </td>
-                <td style={{ borderRight: "1px solid rgba(255,255,255,0.1)" }}>
-                  <input type="text" className="input-field" placeholder="상세 내용 기입"
-                    value={r.yDetail} onChange={e => handleInputChange(r.id, "yDetail", e.target.value)}
-                    style={{ minWidth: "160px" }} disabled={isClosed} />
+                  <input
+                    type="text"
+                    className="input-field"
+                    placeholder="상세 내용 기입"
+                    value={r.yDetail}
+                    onChange={e => handleInputChange(r.id, "yDetail", e.target.value)}
+                    style={{ minWidth: "200px" }}
+                    disabled={isClosed}
+                  />
                   {isClosed && (
-                    <div style={{ marginTop: "0.3rem" }}>
-                      <button onClick={() => handleRequestEdit(r)} className="print-hide"
-                        style={{ fontSize: "0.7rem", padding: "0.2rem 0.5rem", background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: "4px", color: "white", cursor: "pointer" }}>
+                    <div style={{ marginTop: "0.5rem" }}>
+                      <span style={{ display: 'inline-block', fontSize: '0.75rem', color: '#f87171', marginRight: "0.5rem" }}>마감됨</span>
+                      <button
+                        onClick={() => handleRequestEdit(r)}
+                        className="print-hide"
+                        style={{ fontSize: "0.7rem", padding: "0.2rem 0.5rem", background: "rgba(239, 68, 68, 0.1)", border: "1px solid rgba(239, 68, 68, 0.3)", borderRadius: "4px", color: "white", cursor: "pointer" }}
+                      >
                         권한 요청
                       </button>
                     </div>
                   )}
                 </td>
+                <td style={{ borderRight: "1px solid rgba(255,255,255,0.1)" }}>
+                  {r.xFileLink ? (
+                    <a href={r.xFileLink} target="_blank" rel="noreferrer" style={{ color: "#34d399", marginRight: "0.5rem" }}>파일 보기</a>
+                  ) : uploadingId === r.id ? (
+                    <span style={{ color: "var(--text-secondary)" }}>업로드 중...</span>
+                  ) : (
+                    <label style={{ cursor: isClosed ? "not-allowed" : "pointer", color: isClosed ? "var(--text-secondary)" : "var(--accent-primary)", fontSize: "0.80rem" }}>
+                      {isClosed ? "첨부불가" : "파일 첨부"}
+                      <input
+                        type="file"
+                        style={{ display: "none" }}
+                        disabled={isClosed}
+                        onChange={(e) => {
+                          if (e.target.files && e.target.files[0]) handleFileUpload(r.id, e.target.files[0]);
+                        }}
+                      />
+                    </label>
+                  )}
+                </td>
 
-                {/* 퇴원생 정보 11종 */}
-                <td style={{ color: "#60a5fa", fontWeight: "bold" }}>{r.studentName}</td>
-                <td>{r.school}</td>
-                <td>{r.grade}</td>
-                <td style={{ color: "var(--text-secondary)" }}>{r.lastAttend || "-"}</td>
-                <td>{r.reasonOriginal || "-"}</td>
-                <td>{r.classType2}</td>
-                <td>{r.className}</td>
-                <td>{r.startDate}</td>
-                <td>{r.endDate}</td>
-                <td style={{ color: "var(--text-primary)", fontWeight: "bold" }}>{r.code}</td>
-                <td style={{ color: "var(--text-secondary)" }}>{r.downloadDate}</td>
+                <td style={{ opacity: 0.6 }}>{r.zAdminReason1 || "-"}</td>
+                <td style={{ opacity: 0.6 }}>{r.aaAdminReason2 || "-"}</td>
+                <td style={{ opacity: 0.6 }}>{r.abAdminDetail || "-"}</td>
               </tr>
             );
           })}
@@ -771,7 +649,7 @@ export default function EditorDashboard() {
                 value={selectedMonth}
                 onChange={(e) => setSelectedMonth(e.target.value)}
               >
-                <option value="all">전체 월</option>
+                <option value="all">모든 달 보기</option>
                 {monthOptions.map(m => (
                   <option key={m} value={m}>{m}</option>
                 ))}
@@ -779,41 +657,41 @@ export default function EditorDashboard() {
             </div>
           )}
 
-          {/* 내보내기 그룹 — 관리자/중간관리자만 표시 */}
-          {(userInfo?.role === "admin" || userInfo?.role === "mid_admin") && (
-            <div style={{ display: "flex", gap: "0.5rem" }}>
-              <button className="btn-secondary" onClick={handleExportCSV}>
-                엑셀다운(cvs)
-              </button>
-              <button className="btn-secondary" onClick={handlePrintPDF}>
-                인쇄 (PDF 저장)
-              </button>
-            </div>
-          )}
+          {/* 새로고침 버튼 (구글 시트 변경사항 반영) */}
+          <button
+            className="btn-secondary"
+            onClick={() => fetchData(userInfo)}
+            disabled={loading}
+            title="구글 시트의 최신 데이터를 불러옵니다"
+          >
+            {loading ? "로딩중..." : "새로고침"}
+          </button>
+
+          {/* 내보내기 그룹 */}
+          <div style={{ display: "flex", gap: "0.5rem" }}>
+            <button className="btn-secondary" onClick={handleExportCSV}>
+              CSV 엑셀 다운
+            </button>
+            <button className="btn-secondary" onClick={handlePrintPDF}>
+              인쇄 (PDF 저장)
+            </button>
+          </div>
 
           {activeTab === "input" && (
-            <div style={{ display: "flex", gap: "0.5rem", marginLeft: "auto" }}>
-              <button className="btn-secondary" onClick={handleTempSave}
-                style={{ fontSize: "0.9rem", border: "1px solid rgba(251,191,36,0.5)", color: "#fbbf24" }}>
-                임시저장
-              </button>
-              <button className="btn-primary" onClick={handleFinalSubmit} style={{ fontSize: "1rem" }}>
-                전체저장
-              </button>
-            </div>
+            <button className="btn-primary" onClick={handleFinalSubmit} style={{ marginLeft: "auto", fontSize: "1rem" }}>
+              전체저장
+            </button>
           )}
         </div>
       </div>
 
       <div className="tabs-container">
-        {(userInfo?.role === "admin" || userInfo?.role === "mid_admin") && (
-          <button
-            className={`tab-button ${activeTab === "report" ? "active" : ""}`}
-            onClick={() => setActiveTab("report")}
-          >
-            보고서 조회
-          </button>
-        )}
+        <button
+          className={`tab-button ${activeTab === "report" ? "active" : ""}`}
+          onClick={() => setActiveTab("report")}
+        >
+          보고서 조회
+        </button>
         <button
           className={`tab-button ${activeTab === "input" ? "active" : ""}`}
           onClick={() => setActiveTab("input")}
@@ -834,3 +712,4 @@ export default function EditorDashboard() {
     </>
   );
 }
+                                                                                              
