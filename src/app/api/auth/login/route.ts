@@ -36,10 +36,16 @@ export async function POST(req: Request) {
     const role = firstMatch[4] || 'user'; // 'admin' or 'user' 등
     const notionUserId = firstMatch[5] || '';
     
-    // 아이디가 가진 모든 수익코드 추출 (빈 값 제외)
+    // 아이디가 가진 모든 수익코드 추출 (빈 값 제외, 콤마 구분도 지원)
     const codesSet = new Set<string>();
     matchedRows.forEach(row => {
-      if (row[3]) codesSet.add(String(row[3]).trim());
+      if (row[3]) {
+        // 콤마/슬래시/공백 등으로 여러 코드가 한 셀에 있는 경우도 분리
+        String(row[3]).split(/[,\/\s]+/).forEach(code => {
+          const trimmed = code.trim();
+          if (trimmed) codesSet.add(trimmed);
+        });
+      }
     });
     
     const profitCodes = Array.from(codesSet);

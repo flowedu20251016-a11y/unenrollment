@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { getSheetsInstance } from "@/lib/google";
 
+export const dynamic = 'force-dynamic';
+
 const SHEET_ID = '1tm22_10KEhSU9GHvdXCxw8dmMQWSno7GJbGO65aQNoc';
 
 export async function GET() {
@@ -53,7 +55,14 @@ export async function GET() {
         studentId: h[13] || "학번", // N열 (13)
         realDropDate: h[14] || "퇴원처리일자", // O열 (14)
         lastAttend: h[15] || "마지막출석", // P열 (15)
-        
+
+        // --- 📊 Q~U열 (매출/출석부재확인 등) ---
+        colQ: h[16] || "Q열", // Q열 (16)
+        colR: h[17] || "R열", // R열 (17)
+        colS: h[18] || "S열", // S열 (18)
+        colT: h[19] || "T열", // T열 (19)
+        colU: h[20] || "U열", // U열 (20)
+
         // --- ✏️ 담당자 작성(입력) 영역 ---
         vReason1: h[21] || "퇴원사유(분류1)", // V열 (21)
         wReason2: h[22] || "퇴원종류(분류2)", // W열 (22)
@@ -97,8 +106,15 @@ export async function GET() {
         grade: row[11] || "", 
         studentId: row[13] || "", 
         realDropDate: row[14] || "", 
-        lastAttend: row[15] || "", 
-        
+        lastAttend: row[15] || "",
+
+        // Q~U 열 (매출/출석부재확인 등)
+        colQ: row[16] || "",
+        colR: row[17] || "",
+        colS: row[18] || "",
+        colT: row[19] || "",
+        colU: row[20] || "",
+
         // 입력 가능 조작 영역 (V: 21, W: 22, X: 23, Y: 24)
         vReason1: row[21] || "",
         wReason2: row[22] || "",

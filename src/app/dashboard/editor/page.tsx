@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import ChatbotOverlay from "@/components/ChatbotOverlay";
 
@@ -18,6 +18,7 @@ interface InputRecordType {
   id: string; rowIndex: number;
   colA: string; downloadDate: string; code: string; classType1: string; classType2: string; className: string; studentName: string;
   startDate: string; endDate: string; school: string; grade: string; studentId: string; realDropDate: string; lastAttend: string;
+  colQ: string; colR: string; colS: string; colT: string; colU: string;
   vReason1: string; wReason2: string; xFileLink: string; yDetail: string; zAdminReason1: string; aaAdminReason2: string; abAdminDetail: string;
   status?: string;
 }
@@ -32,7 +33,6 @@ export default function EditorDashboard() {
   const [activeTab, setActiveTab] = useState<"report" | "input">("input");
   const [userInfo, setUserInfo] = useState<any>(null);
 
-  // 데이터 스테이트
   const [reportRecords, setReportRecords] = useState<ReportRecordType[]>([]);
   const [inputRecords, setInputRecords] = useState<InputRecordType[]>([]);
   const [categories, setCategories] = useState<Record<string, CategoryOptions[]>>({});
@@ -41,19 +41,84 @@ export default function EditorDashboard() {
   const [loading, setLoading] = useState(true);
   const [uploadingId, setUploadingId] = useState<string | null>(null);
 
-  // --- 새로 추가된 기능용 State ---
+  // 월 필터
   const [selectedMonth, setSelectedMonth] = useState<string>("all");
 
-  // 월(colA) 목록 추출
-  const monthOptions = Array.from(new Set(inputRecords.map(r => r.colA).filter(m => !!m))).sort().reverse();
+  // 수익코드 다중선택 필터
+  const [selectedCodes, setSelectedCodes] = useState<string[]>([]);
 
-  // 선택된 월에 따라 필터링된 데이터
-  const filteredInputRecords = selectedMonth === "all" ? inputRecords : inputRecords.filter(r => r.colA === selectedMonth);
-  const filteredReportRecords = selectedMonth === "all" ? reportRecords : reportRecords; // 보고서는 월 필드가 없다면 우선 전체 표시 또는 동일하게 필터링 적용 가능
+  // 분류별 통계 펼침 여부
+  const [showStats, setShowStats] = useState(false);
+
+  // 월(colA) 목록 추출
+  const monthOptions = useMemo(
+    () => Array.from(new Set(inputRecords.map(r => r.colA).filter(Boolean))).sort().reverse(),
+    [inputRecords]
+  );
+
+  // 현재 유저가 가진 수익코드 목록 (실제 데이터에서 추출 — 가장 정확)
+  const availableCodes = useMemo(() => {
+    if (!userInfo) return [];
+    // admin이든 user이든, 실제 화면에 로드된 데이터의 수익코드를 기준으로 필터 표시
+    const codesFromData = Array.from(new Set(inputRecords.map(r => r.code).filter(Boolean))).sort() as string[];
+    if (codesFromData.length > 0) return codesFromData;
+    // 데이터 로딩 전 fallback
+    return (userInfo.profitCodes || []) as string[];
+  }, [inputRecords, userInfo]);
+
+  // 코드 토글
+  const toggleCode = (code: string) => {
+    setSelectedCodes(prev =>
+      prev.includes(code) ? prev.filter(c => c !== code) : [...prev, code]
+    );
+  };
+
+  // 전체선택/해제
+  const toggleAllCodes = () => {
+    if (selectedCodes.length === availableCodes.length) {
+      setSelectedCodes([]);
+    } else {
+      setSelectedCodes([...availableCodes]);
+    }
+  };
+
+  // 월 + 수익코드 복합 필터
+  const filteredInputRecords = useMemo(() => {
+    return inputRecords.filter(r => {
+      const monthMatch = selectedMonth === "all" || r.colA === selectedMonth;
+      const codeMatch = selectedCodes.length === 0 || selectedCodes.includes(r.code);
+      return monthMatch && codeMatch;
+    });
+  }, [inputRecords, selectedMonth, selectedCodes]);
+
+  const filteredReportRecords = selectedMonth === "all" ? reportRecords : reportRecords;
+
+  // 퇴원종류 비교 통계
+  const reasonStats = useMemo(() => {
+    const editorCounts: Record<string, number> = {};
+    const adminCounts: Record<string, number> = {};
+
+    filteredInputRecords.forEach(r => {
+      if (r.vReason1) editorCounts[r.vReason1] = (editorCounts[r.vReason1] || 0) + 1;
+      if (r.zAdminReason1) adminCounts[r.zAdminReason1] = (adminCounts[r.zAdminReason1] || 0) + 1;
+    });
+
+    const allCategories = Array.from(new Set([...Object.keys(editorCounts), ...Object.keys(adminCounts)])).sort();
+
+    return {
+      totalRecords: filteredInputRecords.length,
+      editorTotal: filteredInputRecords.filter(r => r.vReason1).length,
+      adminTotal: filteredInputRecords.filter(r => r.zAdminReason1).length,
+      byCategory: allCategories.map(cat => ({
+        category: cat,
+        editorCount: editorCounts[cat] || 0,
+        adminCount: adminCounts[cat] || 0,
+      })),
+    };
+  }, [filteredInputRecords]);
 
   // 초기 로더
   useEffect(() => {
-    // 세션 검증
     const sessionStr = localStorage.getItem("dropout_user");
     if (!sessionStr) {
       alert("로그인이 필요합니다.");
@@ -62,24 +127,20 @@ export default function EditorDashboard() {
     }
     const user = JSON.parse(sessionStr);
     setUserInfo(user);
-
     fetchData(user);
   }, []);
 
   const fetchData = async (user: any) => {
     setLoading(true);
     try {
-      // 보고서용
-      const reportRes = await fetch("/api/records");
+      const reportRes = await fetch("/api/records", { cache: "no-store" });
       const reportData = await reportRes.json();
       let rRecords = reportData.records || [];
 
-      // 입력용
-      const inputRes = await fetch("/api/records/input");
+      const inputRes = await fetch("/api/records/input", { cache: "no-store" });
       const inputData = await inputRes.json();
       let iRecords = inputData.records || [];
 
-      // admin이 아니면 자신에게 할당된 수익코드만 필터링
       if (user && user.role !== "admin") {
         const myCodes = user.profitCodes || [];
         rRecords = rRecords.filter((r: any) => myCodes.includes(String(r.code)));
@@ -106,7 +167,6 @@ export default function EditorDashboard() {
       records.map(r => {
         if (r.id === id) {
           const updated = { ...r, [field]: value };
-          // 분류 1이 바뀌면 분류 2(wReason2) 초기화
           if (field === "vReason1") {
             updated.wReason2 = "";
           }
@@ -139,7 +199,6 @@ export default function EditorDashboard() {
     }
   };
 
-  // V, W, X, Y 등 값이 있는 것들만 모아 저장
   const handleFinalSubmit = async () => {
     const recordsToSave = inputRecords.filter(r => r.vReason1 || r.yDetail);
     if (recordsToSave.length === 0) {
@@ -150,7 +209,6 @@ export default function EditorDashboard() {
     if (!confirm(`총 ${recordsToSave.length}건의 사유를 저장하고 관리자(기조실)에게 알림을 보내시겠습니까?`)) return;
 
     try {
-      // 1. Google Sheets 저장
       const res = await fetch("/api/records/input", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -160,7 +218,6 @@ export default function EditorDashboard() {
       const saveData = await res.json();
       if (!saveData.success) throw new Error("스프레드시트 업데이트 실패");
 
-      // 2. Notion 알림 전송
       await fetch("/api/notion", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -174,40 +231,35 @@ export default function EditorDashboard() {
       });
 
       alert("성공적으로 저장 및 알림이 전송되었습니다!");
-      fetchData(userInfo); // 재조회
+      fetchData(userInfo);
     } catch (err) {
       alert(String(err));
     }
   };
 
-
   // -----------------------------------------------------
   // 유틸리티 로직 (내보내기)
   // -----------------------------------------------------
   const handleExportCSV = () => {
-    // 엑셀(CSV) 다운로드 함수
     const records = activeTab === "input" ? filteredInputRecords : reportRecords;
     if (records.length === 0) return alert("다운로드할 데이터가 없습니다.");
 
-    // CSV 파일 헤더 구성
-    let csvContent = "\uFEFF"; // 한글 깨짐 방지 BOM
+    let csvContent = "\uFEFF";
     if (activeTab === "input") {
-      csvContent += "년월,NO,명단다운,수익코드,반형태1,반형태2,반명,학생명,시작일,종료일,학교명,학년,학번,퇴원처리일자,마지막출석,퇴원사유1,퇴원종류2,상세사유,증빙첨부링크,기조실사유1,기조실종류2,기조실상태,상태\n";
-      // @ts-ignore
+      csvContent += "년월,NO,명단다운,수익코드,반형태1,반형태2,반명,학생명,시작일,종료일,학교명,학년,학번,퇴원처리일자,마지막출석,Q열,R열,S열,T열,U열,퇴원사유1,퇴원종류2,상세사유,증빙첨부링크,기조실사유1,기조실종류2,기조실상태,상태\n";
       records.forEach((r: any) => {
         const row = [
           r.colA, r.rowIndex, r.downloadDate, r.code, r.classType1, r.classType2, r.className, r.studentName,
           r.startDate, r.endDate, r.school, r.grade, r.studentId, r.realDropDate, r.lastAttend,
+          r.colQ, r.colR, r.colS, r.colT, r.colU,
           r.vReason1, r.wReason2, r.yDetail?.replace(/,/g, " "), r.xFileLink,
           r.zAdminReason1, r.aaAdminReason2, r.abAdminDetail,
           r.status === 'closed' ? '마감됨' : '작성가능'
         ];
-        // 개행문자나 빈 문자열 치환 처리
         csvContent += row.map(v => `"${(v || '').toString().replace(/"/g, '""')}"`).join(",") + "\n";
       });
     } else {
       csvContent += "수익코드,사업부,브랜드,캠퍼스,최종퇴원율,목표퇴원율\n";
-      // @ts-ignore
       records.forEach((r: any) => {
         const row = [r.code, r.department, r.brand, r.campus, r.finalRate, r.targetRate];
         csvContent += row.join(",") + "\n";
@@ -228,7 +280,6 @@ export default function EditorDashboard() {
     window.print();
   };
 
-  // 관리자 권한 요청 핑(수정 요청)
   const handleRequestEdit = async (record: typeof inputRecords[number]) => {
     const msg = prompt(`[${record.studentName}] 데이터 수정을 요청하시겠습니까?\n사유를 간단히 입력해주세요:`);
     if (msg === null) return;
@@ -247,7 +298,7 @@ export default function EditorDashboard() {
           userName: userInfo?.name || "알 수 없는 사용자",
         }),
       });
-      alert("✅ 수정 권한 요청이 관리자 노션으로 전송되었습니다.");
+      alert("수정 권한 요청이 관리자 노션으로 전송되었습니다.");
     } catch (e) {
       console.error(e);
       alert("알림 전송 중 오류가 발생했습니다.");
@@ -257,6 +308,95 @@ export default function EditorDashboard() {
   // -----------------------------------------------------
   // 렌더링 부속물
   // -----------------------------------------------------
+
+  // 수익코드 필터 UI (코드가 1개 이상이면 항상 표시)
+  const renderCodeFilter = () => {
+    if (availableCodes.length === 0) return null;
+    const allSelected = selectedCodes.length === 0 || selectedCodes.length === availableCodes.length;
+
+    return (
+      <div style={{ padding: "0.6rem 1rem", borderBottom: "1px solid rgba(255,255,255,0.08)", display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap", background: "rgba(255,255,255,0.02)" }}>
+        <span style={{ fontSize: "0.82rem", color: "var(--text-secondary)", fontWeight: 600, whiteSpace: "nowrap" }}>수익코드 필터:</span>
+        <button
+          onClick={toggleAllCodes}
+          style={{
+            padding: "0.2rem 0.7rem", borderRadius: "999px", fontSize: "0.78rem", cursor: "pointer",
+            border: allSelected ? "1px solid #6366f1" : "1px solid rgba(255,255,255,0.2)",
+            background: allSelected ? "rgba(99,102,241,0.25)" : "transparent",
+            color: allSelected ? "#a5b4fc" : "var(--text-secondary)",
+          }}
+        >
+          전체
+        </button>
+        {availableCodes.map((code) => {
+          const active = selectedCodes.includes(code);
+          return (
+            <button
+              key={code}
+              onClick={() => toggleCode(code)}
+              style={{
+                padding: "0.2rem 0.7rem", borderRadius: "999px", fontSize: "0.78rem", cursor: "pointer",
+                border: active ? "1px solid #6366f1" : "1px solid rgba(255,255,255,0.2)",
+                background: active ? "rgba(99,102,241,0.25)" : "transparent",
+                color: active ? "#a5b4fc" : "var(--text-secondary)",
+              }}
+            >
+              {code}
+            </button>
+          );
+        })}
+      </div>
+    );
+  };
+
+  // 퇴원종류 비교 통계 UI
+  const renderStatsBar = () => (
+    <div>
+      {/* 요약 바 */}
+      <div style={{ padding: "0.6rem 1rem", borderBottom: showStats ? "none" : "1px solid rgba(255,255,255,0.08)", display: "flex", alignItems: "center", gap: "1.5rem", flexWrap: "wrap", background: "rgba(255,255,255,0.02)", fontSize: "0.82rem" }}>
+        <span style={{ color: "var(--text-secondary)" }}>총 <b style={{ color: "var(--text-primary)" }}>{reasonStats.totalRecords}</b>건</span>
+        <span style={{ color: "#a5b4fc" }}>사업부 작성 <b>{reasonStats.editorTotal}</b>건</span>
+        <span style={{ color: "#34d399" }}>기조실 확정 <b>{reasonStats.adminTotal}</b>건</span>
+        <span style={{ color: "#f87171" }}>미작성 <b>{reasonStats.totalRecords - reasonStats.editorTotal}</b>건</span>
+        {reasonStats.byCategory.length > 0 && (
+          <button
+            onClick={() => setShowStats(s => !s)}
+            style={{ marginLeft: "auto", padding: "0.2rem 0.7rem", fontSize: "0.78rem", borderRadius: "6px", border: "1px solid rgba(255,255,255,0.2)", background: "transparent", color: "var(--text-secondary)", cursor: "pointer" }}
+          >
+            {showStats ? "▲ 분류별 닫기" : "▼ 분류별 상세"}
+          </button>
+        )}
+      </div>
+
+      {/* 분류별 상세 (펼쳐질 때만) */}
+      {showStats && reasonStats.byCategory.length > 0 && (
+        <div style={{ padding: "0.75rem 1rem", borderBottom: "1px solid rgba(255,255,255,0.08)", background: "rgba(0,0,0,0.2)" }}>
+          <table style={{ fontSize: "0.78rem", borderCollapse: "collapse", width: "auto" }}>
+            <thead>
+              <tr>
+                <th style={{ padding: "0.25rem 0.75rem", textAlign: "left", color: "var(--text-secondary)", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>분류</th>
+                <th style={{ padding: "0.25rem 0.75rem", textAlign: "center", color: "#a5b4fc", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>사업부 작성</th>
+                <th style={{ padding: "0.25rem 0.75rem", textAlign: "center", color: "#34d399", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>기조실 확정</th>
+                <th style={{ padding: "0.25rem 0.75rem", textAlign: "center", color: "var(--text-secondary)", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>차이</th>
+              </tr>
+            </thead>
+            <tbody>
+              {reasonStats.byCategory.map(stat => (
+                <tr key={stat.category}>
+                  <td style={{ padding: "0.2rem 0.75rem", color: "var(--text-primary)" }}>{stat.category}</td>
+                  <td style={{ padding: "0.2rem 0.75rem", textAlign: "center", color: "#a5b4fc", fontWeight: "bold" }}>{stat.editorCount}</td>
+                  <td style={{ padding: "0.2rem 0.75rem", textAlign: "center", color: "#34d399", fontWeight: "bold" }}>{stat.adminCount}</td>
+                  <td style={{ padding: "0.2rem 0.75rem", textAlign: "center", color: stat.editorCount !== stat.adminCount ? "#fbbf24" : "var(--text-secondary)" }}>
+                    {stat.editorCount - stat.adminCount > 0 ? `+${stat.editorCount - stat.adminCount}` : stat.editorCount - stat.adminCount}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
 
   // TAB 1: 보고서 조회
   const renderReportTab = () => (
@@ -330,19 +470,25 @@ export default function EditorDashboard() {
     </div>
   );
 
-  // TAB 2: 사유 작성 모드 (드롭다운 & 첨부)
+  // TAB 2: 사유 작성 모드
   const renderInputTab = () => (
     <div className="data-table-container" style={{ padding: 0, margin: 0, border: "none" }}>
+      {/* 수익코드 필터 */}
+      {renderCodeFilter()}
+
+      {/* 퇴원종류 비교 통계 */}
+      {renderStatsBar()}
+
       <table className="data-table" style={{ borderCollapse: "collapse", fontSize: "0.80rem" }}>
         <thead>
           <tr>
-            <th colSpan={13} style={{ background: "rgba(255,255,255,0.05)", borderRight: "1px solid rgba(255,255,255,0.1)" }}>퇴원생 정보</th>
+            <th colSpan={20} style={{ background: "rgba(255,255,255,0.05)", borderRight: "1px solid rgba(255,255,255,0.1)" }}>퇴원생 정보</th>
             <th colSpan={4} style={{ background: "rgba(99,102,241,0.2)", borderRight: "1px solid rgba(255,255,255,0.1)", color: "#a5b4fc" }}>사업부 작성</th>
             <th colSpan={3} style={{ background: "rgba(60,60,60,0.5)" }}>기조실 확정</th>
           </tr>
           <tr style={{ background: "rgba(255,255,255,0.02)", color: "var(--text-secondary)", fontSize: "0.75rem" }}>
-            {/* 기본정보 13종 */}
-            <th>{headers.colA || "/"}</th>
+            {/* 기본정보 */}
+            <th>{headers.colA || "년월"}</th>
             <th>{headers.downloadDate || "명단다운"}</th>
             <th>{headers.code || "수익코드"}</th>
             <th>{headers.classType1 || "형태1"}</th>
@@ -351,9 +497,17 @@ export default function EditorDashboard() {
             <th>{headers.studentName || "학생명"}</th>
             <th>{headers.startDate || "시작일"}</th>
             <th>{headers.endDate || "종료일"}</th>
+            <th>{headers.school || "학교명"}</th>
+            <th>{headers.grade || "학년"}</th>
             <th>{headers.studentId || "학번"}</th>
             <th>{headers.realDropDate || "퇴원처리일자"}</th>
             <th>{headers.lastAttend || "마지막출석"}</th>
+            {/* Q~U열 (매출/출석부재확인 등) */}
+            <th>{headers.colQ || "Q열"}</th>
+            <th>{headers.colR || "R열"}</th>
+            <th>{headers.colS || "S열"}</th>
+            <th>{headers.colT || "T열"}</th>
+            <th>{headers.colU || "U열"}</th>
             <th style={{ borderRight: "1px solid rgba(255,255,255,0.1)" }}>사유(원문)</th>
 
             {/* 담당자 작성 4종 */}
@@ -384,13 +538,20 @@ export default function EditorDashboard() {
                 <td style={{ color: "#60a5fa", fontWeight: "bold" }}>{r.studentName}</td>
                 <td>{r.startDate}</td>
                 <td>{r.endDate}</td>
+                <td>{r.school}</td>
+                <td>{r.grade}</td>
                 <td>{r.studentId}</td>
                 <td>{r.realDropDate}</td>
                 <td>{r.lastAttend}</td>
-                {/* 시트3 원문에 있는 원래 사유 열 (임시로 colL을 생략했으나 요구사항상 A~T 참조) */}
+                {/* Q~U열 */}
+                <td style={{ color: "var(--text-secondary)" }}>{r.colQ || "-"}</td>
+                <td style={{ color: "var(--text-secondary)" }}>{r.colR || "-"}</td>
+                <td style={{ color: "var(--text-secondary)" }}>{r.colS || "-"}</td>
+                <td style={{ color: "var(--text-secondary)" }}>{r.colT || "-"}</td>
+                <td style={{ color: "var(--text-secondary)" }}>{r.colU || "-"}</td>
                 <td style={{ borderRight: "1px solid rgba(255,255,255,0.1)" }}>-</td>
 
-                {/* 입력 V, W, X, Y (마감 상태면 disabled) */}
+                {/* 입력 V, W, X, Y */}
                 <td>
                   <select
                     className="input-field"
@@ -421,12 +582,12 @@ export default function EditorDashboard() {
                 </td>
                 <td>
                   {r.xFileLink ? (
-                    <a href={r.xFileLink} target="_blank" rel="noreferrer" style={{ color: "#34d399", marginRight: "0.5rem" }}>📎 파일 보기</a>
+                    <a href={r.xFileLink} target="_blank" rel="noreferrer" style={{ color: "#34d399", marginRight: "0.5rem" }}>파일 보기</a>
                   ) : uploadingId === r.id ? (
                     <span style={{ color: "var(--text-secondary)" }}>업로드 중...</span>
                   ) : (
                     <label style={{ cursor: isClosed ? "not-allowed" : "pointer", color: isClosed ? "var(--text-secondary)" : "var(--accent-primary)", fontSize: "0.80rem" }}>
-                      ☁️ {isClosed ? "첨부불가" : "파일 첨부"}
+                      {isClosed ? "첨부불가" : "파일 첨부"}
                       <input
                         type="file"
                         style={{ display: "none" }}
@@ -450,13 +611,13 @@ export default function EditorDashboard() {
                   />
                   {isClosed && (
                     <div style={{ marginTop: "0.5rem" }}>
-                      <span style={{ display: 'inline-block', fontSize: '0.75rem', color: '#f87171', marginRight: "0.5rem" }}>🔒 마감됨</span>
+                      <span style={{ display: 'inline-block', fontSize: '0.75rem', color: '#f87171', marginRight: "0.5rem" }}>마감됨</span>
                       <button
                         onClick={() => handleRequestEdit(r)}
                         className="print-hide"
                         style={{ fontSize: "0.7rem", padding: "0.2rem 0.5rem", background: "rgba(239, 68, 68, 0.1)", border: "1px solid rgba(239, 68, 68, 0.3)", borderRadius: "4px", color: "white", cursor: "pointer" }}
                       >
-                        🔔 권한 요청
+                        권한 요청
                       </button>
                     </div>
                   )}
@@ -487,13 +648,13 @@ export default function EditorDashboard() {
           {/* 월별 필터 드롭다운 */}
           {activeTab === "input" && (
             <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-              <span style={{ fontSize: "0.95rem", color: "var(--text-secondary)", fontWeight: 600 }}>📅 월:</span>
+              <span style={{ fontSize: "0.95rem", color: "var(--text-secondary)", fontWeight: 600 }}>월:</span>
               <select
                 className="filter-select"
                 value={selectedMonth}
                 onChange={(e) => setSelectedMonth(e.target.value)}
               >
-                <option value="all">모든 달 보기 열기</option>
+                <option value="all">모든 달 보기</option>
                 {monthOptions.map(m => (
                   <option key={m} value={m}>{m}</option>
                 ))}
@@ -501,19 +662,29 @@ export default function EditorDashboard() {
             </div>
           )}
 
+          {/* 새로고침 버튼 (구글 시트 변경사항 반영) */}
+          <button
+            className="btn-secondary"
+            onClick={() => fetchData(userInfo)}
+            disabled={loading}
+            title="구글 시트의 최신 데이터를 불러옵니다"
+          >
+            {loading ? "로딩중..." : "새로고침"}
+          </button>
+
           {/* 내보내기 그룹 */}
           <div style={{ display: "flex", gap: "0.5rem" }}>
             <button className="btn-secondary" onClick={handleExportCSV}>
-              📥 CSV 엑셀 다운
+              CSV 엑셀 다운
             </button>
             <button className="btn-secondary" onClick={handlePrintPDF}>
-              🖨 인쇄 (PDF 저장)
+              인쇄 (PDF 저장)
             </button>
           </div>
 
           {activeTab === "input" && (
             <button className="btn-primary" onClick={handleFinalSubmit} style={{ marginLeft: "auto", fontSize: "1rem" }}>
-              ✅ 전체저장
+              전체저장
             </button>
           )}
         </div>
@@ -542,7 +713,6 @@ export default function EditorDashboard() {
         )}
       </div>
 
-      {/* 챗봇 추가 (퇴원 사유 작성 탭에서만 보이게 하려면 조건부 렌더링해도 되나, 보통 범용으로 사용) */}
       <ChatbotOverlay />
     </>
   );
