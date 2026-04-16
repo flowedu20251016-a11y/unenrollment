@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import ChatbotOverlay from "@/components/ChatbotOverlay";
 
@@ -51,6 +51,27 @@ export default function EditorDashboard() {
   // 분류별 통계 펼침 여부
   const [showStats, setShowStats] = useState(false);
 
+  // 기조실 확정 컬럼 접기/펼치기
+  const [showAdminCols, setShowAdminCols] = useState(true);
+
+  // 분류별 차이 팝업
+  const [diffPopup, setDiffPopup] = useState<{ category: string; records: InputRecordType[] } | null>(null);
+
+  // 보고서 탭 필터
+  const [reportViewMode, setReportViewMode] = useState<"month" | "quarter">("month");
+  const [reportSelectedMonth, setReportSelectedMonth] = useState("all");
+  const [reportSelectedQuarter, setReportSelectedQuarter] = useState("all");
+
+  // 팝업 → 행 이동 시 하이라이트
+  const [highlightedRowId, setHighlightedRowId] = useState<string | null>(null);
+
+  // 분류별 보기 모드: 전체 / 수익코드별
+  const [statsViewMode, setStatsViewMode] = useState<"overall" | "byCode">("overall");
+
+  // 팝업 드래그
+  const [popupPos, setPopupPos] = useState({ x: 0, y: 0 });
+  const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
+
   // 컬럼 정렬
   const [sortConfig, setSortConfig] = useState<{ key: keyof InputRecordType; dir: "asc" | "desc" } | null>(null);
 
@@ -70,6 +91,36 @@ export default function EditorDashboard() {
     () => Array.from(new Set(inputRecords.map(r => r.colA).filter(Boolean))).sort().reverse(),
     [inputRecords]
   );
+
+  // 분기 목록 추출 (YYYY-QN 형식)
+  const quarterOptions = useMemo(() => {
+    const set = new Set<string>();
+    monthOptions.forEach(m => {
+      const parts = m.split("-");
+      if (parts.length >= 2) {
+        const year = parts[0];
+        const mon = parseInt(parts[1]);
+        if (!isNaN(mon)) set.add(`${year}-Q${Math.ceil(mon / 3)}`);
+      }
+    });
+    return Array.from(set).sort().reverse();
+  }, [monthOptions]);
+
+  // 보고서 탭 필터링 (inputRecords의 code를 기준으로 연결)
+  const filteredReportRecords = useMemo(() => {
+    if (reportViewMode === "month") {
+      if (reportSelectedMonth === "all") return reportRecords;
+      const codes = new Set(inputRecords.filter(r => r.colA === reportSelectedMonth).map(r => r.code));
+      return reportRecords.filter(r => codes.has(r.code));
+    } else {
+      if (reportSelectedQuarter === "all") return reportRecords;
+      const [year, q] = reportSelectedQuarter.split("-Q");
+      const qNum = parseInt(q);
+      const months = [1, 2, 3].map(i => `${year}-${String((qNum - 1) * 3 + i).padStart(2, "0")}`);
+      const codes = new Set(inputRecords.filter(r => months.includes(r.colA)).map(r => r.code));
+      return reportRecords.filter(r => codes.has(r.code));
+    }
+  }, [reportRecords, inputRecords, reportViewMode, reportSelectedMonth, reportSelectedQuarter]);
 
   // 현재 유저가 가진 수익코드 목록 (실제 데이터에서 추출 — 가장 정확)
   const availableCodes = useMemo(() => {
@@ -160,19 +211,38 @@ export default function EditorDashboard() {
     return list;
   }, [inputRecords, selectedMonth, selectedCodes, sortConfig]);
 
-  const filteredReportRecords = selectedMonth === "all" ? reportRecords : reportRecords;
-
   // 퇴원종류 비교 통계
   const reasonStats = useMemo(() => {
     const editorCounts: Record<string, number> = {};
     const adminCounts: Record<string, number> = {};
 
     filteredInputRecords.forEach(r => {
-      if (r.vReason1) editorCounts[r.vReason1] = (editorCounts[r.vReason1] || 0) + 1;
-      if (r.zAdminReason1) adminCounts[r.zAdminReason1] = (adminCounts[r.zAdminReason1] || 0) + 1;
+      const v = r.vReason1?.trim();
+      const a = r.zAdminReason1?.trim();
+      if (v) editorCounts[v] = (editorCounts[v] || 0) + 1;
+      if (a) adminCounts[a] = (adminCounts[a] || 0) + 1;
     });
 
     const allCategories = Array.from(new Set([...Object.keys(editorCounts), ...Object.keys(adminCounts)])).sort();
+
+    // 수익코드별 분류 통계
+    const codeList = Array.from(new Set(filteredInputRecords.map(r => r.code).filter(Boolean))).sort();
+    const byCode = codeList.map(code => {
+      const recs = filteredInputRecords.filter(r => r.code === code);
+      const ec: Record<string, number> = {};
+      const ac: Record<string, number> = {};
+      recs.forEach(r => {
+        const v = r.vReason1?.trim();
+        const a = r.zAdminReason1?.trim();
+        if (v) ec[v] = (ec[v] || 0) + 1;
+        if (a) ac[a] = (ac[a] || 0) + 1;
+      });
+      const cats = Array.from(new Set([...Object.keys(ec), ...Object.keys(ac)])).sort();
+      return {
+        code,
+        categories: cats.map(cat => ({ category: cat, editorCount: ec[cat] || 0, adminCount: ac[cat] || 0 })),
+      };
+    });
 
     return {
       totalRecords: filteredInputRecords.length,
@@ -183,6 +253,7 @@ export default function EditorDashboard() {
         editorCount: editorCounts[cat] || 0,
         adminCount: adminCounts[cat] || 0,
       })),
+      byCode,
     };
   }, [filteredInputRecords]);
 
@@ -442,12 +513,12 @@ export default function EditorDashboard() {
           const stat = codeStats[code] || { total: 0, written: 0, allClosed: false };
           const statusLabel = stat.allClosed ? "🔒 마감됨"
             : stat.total === 0 || stat.written === 0 ? "미작성"
-            : stat.written === stat.total ? "전송완료"
-            : "작성중";
+              : stat.written === stat.total ? "전송완료"
+                : "작성중";
           const statusColor = stat.allClosed ? "#f87171"
             : stat.written === 0 ? "var(--text-secondary)"
-            : stat.written === stat.total ? "#34d399"
-            : "#fbbf24";
+              : stat.written === stat.total ? "#34d399"
+                : "#fbbf24";
 
           return (
             <div key={code} style={{ display: "flex", alignItems: "center", gap: "0.25rem" }}>
@@ -500,12 +571,26 @@ export default function EditorDashboard() {
       {/* 요약 바 */}
       <div style={{ padding: "0.6rem 1rem", borderBottom: showStats ? "none" : "1px solid rgba(255,255,255,0.08)", display: "flex", alignItems: "center", gap: "1.5rem", flexWrap: "wrap", background: "rgba(255,255,255,0.02)", fontSize: "0.82rem" }}>
         {reasonStats.byCategory.length > 0 && (
-          <button
-            onClick={() => setShowStats(s => !s)}
-            style={{ padding: "0.2rem 0.7rem", fontSize: "0.78rem", borderRadius: "6px", border: "1px solid rgba(255,255,255,0.2)", background: "transparent", color: "var(--text-secondary)", cursor: "pointer" }}
-          >
-            {showStats ? "▲ 분류별 닫기" : "▼ 분류별 상세"}
-          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+            <button
+              onClick={() => setShowStats(s => !s)}
+              style={{ padding: "0.2rem 0.7rem", fontSize: "0.78rem", borderRadius: "6px", border: "1px solid rgba(255,255,255,0.2)", background: "transparent", color: "var(--text-secondary)", cursor: "pointer" }}
+            >
+              {showStats ? "▲ 분류별 닫기" : "▼ 분류별 상세"}
+            </button>
+            {showStats && (
+              <div style={{ display: "flex", borderRadius: "5px", overflow: "hidden", border: "1px solid rgba(255,255,255,0.15)" }}>
+                <button onClick={() => setStatsViewMode("overall")}
+                  style={{ padding: "0.15rem 0.6rem", fontSize: "0.74rem", cursor: "pointer", border: "none",
+                    background: statsViewMode === "overall" ? "rgba(99,102,241,0.4)" : "transparent",
+                    color: statsViewMode === "overall" ? "#a5b4fc" : "var(--text-secondary)" }}>전체</button>
+                <button onClick={() => setStatsViewMode("byCode")}
+                  style={{ padding: "0.15rem 0.6rem", fontSize: "0.74rem", cursor: "pointer", border: "none",
+                    background: statsViewMode === "byCode" ? "rgba(99,102,241,0.4)" : "transparent",
+                    color: statsViewMode === "byCode" ? "#a5b4fc" : "var(--text-secondary)" }}>코드별</button>
+              </div>
+            )}
+          </div>
         )}
         <span style={{ color: "var(--text-secondary)" }}>총 <b style={{ color: "var(--text-primary)" }}>{reasonStats.totalRecords}</b>건</span>
         <span style={{ color: "#a5b4fc" }}>사업부 작성 <b>{reasonStats.editorTotal}</b>건</span>
@@ -516,28 +601,95 @@ export default function EditorDashboard() {
       {/* 분류별 상세 (펼쳐질 때만) */}
       {showStats && reasonStats.byCategory.length > 0 && (
         <div style={{ padding: "0.75rem 1rem", borderBottom: "1px solid rgba(255,255,255,0.08)", background: "rgba(0,0,0,0.2)" }}>
-          <table style={{ fontSize: "0.78rem", borderCollapse: "collapse", width: "auto" }}>
-            <thead>
-              <tr>
-                <th style={{ padding: "0.25rem 0.75rem", textAlign: "left", color: "var(--text-secondary)", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>분류</th>
-                <th style={{ padding: "0.25rem 0.75rem", textAlign: "center", color: "#a5b4fc", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>사업부 작성</th>
-                <th style={{ padding: "0.25rem 0.75rem", textAlign: "center", color: "#34d399", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>기조실 확정</th>
-                <th style={{ padding: "0.25rem 0.75rem", textAlign: "center", color: "var(--text-secondary)", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>차이</th>
-              </tr>
-            </thead>
-            <tbody>
-              {reasonStats.byCategory.map(stat => (
-                <tr key={stat.category}>
-                  <td style={{ padding: "0.2rem 0.75rem", color: "var(--text-primary)" }}>{stat.category}</td>
-                  <td style={{ padding: "0.2rem 0.75rem", textAlign: "center", color: "#a5b4fc", fontWeight: "bold" }}>{stat.editorCount}</td>
-                  <td style={{ padding: "0.2rem 0.75rem", textAlign: "center", color: "#34d399", fontWeight: "bold" }}>{stat.adminCount}</td>
-                  <td style={{ padding: "0.2rem 0.75rem", textAlign: "center", color: stat.editorCount !== stat.adminCount ? "#fbbf24" : "var(--text-secondary)" }}>
-                    {stat.editorCount - stat.adminCount > 0 ? `+${stat.editorCount - stat.adminCount}` : stat.editorCount - stat.adminCount}
-                  </td>
+          {statsViewMode === "overall" ? (
+            /* 전체 뷰 */
+            <table style={{ fontSize: "0.78rem", borderCollapse: "collapse", width: "auto" }}>
+              <thead>
+                <tr>
+                  <th style={{ padding: "0.25rem 0.75rem", textAlign: "left", color: "var(--text-secondary)", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>분류</th>
+                  <th style={{ padding: "0.25rem 0.75rem", textAlign: "center", color: "#a5b4fc", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>사업부 작성</th>
+                  <th style={{ padding: "0.25rem 0.75rem", textAlign: "center", color: "#34d399", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>기조실 확정</th>
+                  <th style={{ padding: "0.25rem 0.75rem", textAlign: "center", color: "var(--text-secondary)", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>차이</th>
                 </tr>
+              </thead>
+              <tbody>
+                {reasonStats.byCategory.map(stat => {
+                  const diff = stat.editorCount - stat.adminCount;
+                  const hasDiff = stat.editorCount !== stat.adminCount;
+                  return (
+                    <tr key={stat.category}
+                      onClick={hasDiff ? () => {
+                        const diffRecords = filteredInputRecords.filter(r =>
+                          (r.vReason1 === stat.category && r.zAdminReason1 !== stat.category) ||
+                          (r.zAdminReason1 === stat.category && r.vReason1 !== stat.category)
+                        );
+                        setDiffPopup({ category: stat.category, records: diffRecords });
+                      } : undefined}
+                      style={{ cursor: hasDiff ? "pointer" : "default", background: hasDiff ? "rgba(251,191,36,0.05)" : "transparent" }}
+                      title={hasDiff ? "클릭하여 차이 내역 보기" : ""}
+                    >
+                      <td style={{ padding: "0.2rem 0.75rem", color: "var(--text-primary)" }}>{stat.category}</td>
+                      <td style={{ padding: "0.2rem 0.75rem", textAlign: "center", color: "#a5b4fc", fontWeight: "bold" }}>{stat.editorCount}</td>
+                      <td style={{ padding: "0.2rem 0.75rem", textAlign: "center", color: "#34d399", fontWeight: "bold" }}>{stat.adminCount}</td>
+                      <td style={{ padding: "0.2rem 0.75rem", textAlign: "center", color: hasDiff ? "#fbbf24" : "var(--text-secondary)", fontWeight: hasDiff ? "bold" : "normal" }}>
+                        {diff > 0 ? `+${diff}` : diff}
+                        {hasDiff && <span style={{ marginLeft: "0.3rem", fontSize: "0.7rem" }}>🔍</span>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          ) : (
+            /* 수익코드별 뷰 */
+            <div style={{ display: "flex", gap: "1.5rem", flexWrap: "wrap", alignItems: "flex-start" }}>
+              {reasonStats.byCode.map(({ code, categories }) => (
+                <div key={code}>
+                  <div style={{ fontSize: "0.76rem", fontWeight: 700, color: "var(--accent-primary, #a5b4fc)", marginBottom: "0.3rem", borderBottom: "1px solid rgba(255,255,255,0.15)", paddingBottom: "0.2rem" }}>
+                    {code}
+                  </div>
+                  <table style={{ fontSize: "0.75rem", borderCollapse: "collapse" }}>
+                    <thead>
+                      <tr>
+                        <th style={{ padding: "0.15rem 0.6rem", textAlign: "left", color: "var(--text-secondary)", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>분류</th>
+                        <th style={{ padding: "0.15rem 0.6rem", textAlign: "center", color: "#a5b4fc", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>사업부</th>
+                        <th style={{ padding: "0.15rem 0.6rem", textAlign: "center", color: "#34d399", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>기조실</th>
+                        <th style={{ padding: "0.15rem 0.6rem", textAlign: "center", color: "var(--text-secondary)", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>차이</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {categories.map(stat => {
+                        const diff = stat.editorCount - stat.adminCount;
+                        const hasDiff = diff !== 0;
+                        return (
+                          <tr key={stat.category}
+                            onClick={hasDiff ? () => {
+                              const diffRecords = filteredInputRecords.filter(r =>
+                                r.code === code && (
+                                  (r.vReason1 === stat.category && r.zAdminReason1 !== stat.category) ||
+                                  (r.zAdminReason1 === stat.category && r.vReason1 !== stat.category)
+                                )
+                              );
+                              setDiffPopup({ category: `${code} — ${stat.category}`, records: diffRecords });
+                            } : undefined}
+                            style={{ cursor: hasDiff ? "pointer" : "default", background: hasDiff ? "rgba(251,191,36,0.06)" : "transparent" }}
+                          >
+                            <td style={{ padding: "0.15rem 0.6rem", color: "var(--text-primary)" }}>{stat.category}</td>
+                            <td style={{ padding: "0.15rem 0.6rem", textAlign: "center", color: "#a5b4fc", fontWeight: "bold" }}>{stat.editorCount}</td>
+                            <td style={{ padding: "0.15rem 0.6rem", textAlign: "center", color: "#34d399", fontWeight: "bold" }}>{stat.adminCount}</td>
+                            <td style={{ padding: "0.15rem 0.6rem", textAlign: "center", color: hasDiff ? "#fbbf24" : "var(--text-secondary)", fontWeight: hasDiff ? "bold" : "normal" }}>
+                              {diff > 0 ? `+${diff}` : diff}
+                              {hasDiff && <span style={{ marginLeft: "0.2rem", fontSize: "0.68rem" }}>🔍</span>}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               ))}
-            </tbody>
-          </table>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -582,7 +734,7 @@ export default function EditorDashboard() {
           </tr>
         </thead>
         <tbody>
-          {reportRecords.map(record => (
+          {filteredReportRecords.map(record => (
             <tr key={record.id}>
               <td style={{ color: "var(--text-primary)", fontWeight: "bold" }}>{record.code}</td>
               <td style={{ color: "var(--text-secondary)" }}>{record.department}</td>
@@ -628,15 +780,29 @@ export default function EditorDashboard() {
         <thead>
           <tr>
             <th rowSpan={2} style={{ background: "rgba(255,255,255,0.04)", whiteSpace: "nowrap" }}>#</th>
-            <th colSpan={3} style={{ background: "rgba(60,60,60,0.6)", borderRight: "1px solid rgba(255,255,255,0.1)" }}>기조실 확정</th>
+            <th colSpan={showAdminCols ? 3 : 1} style={{ background: "rgba(60,60,60,0.6)", borderRight: "1px solid rgba(255,255,255,0.1)" }}>
+              <span
+                onClick={() => setShowAdminCols(v => !v)}
+                style={{ cursor: "pointer", userSelect: "none", display: "inline-flex", alignItems: "center", gap: "0.3rem" }}
+                title={showAdminCols ? "기조실 확정 열 접기" : "기조실 확정 열 펼치기"}
+              >
+                {showAdminCols ? "▼" : "▶"} 기조실 확정
+              </span>
+            </th>
             <th colSpan={4} style={{ background: "rgba(99,102,241,0.2)", borderRight: "1px solid rgba(255,255,255,0.1)", color: "#a5b4fc" }}>사업부 작성</th>
             <th colSpan={11} style={{ background: "rgba(255,255,255,0.05)" }}>퇴원생 정보</th>
           </tr>
           <tr style={{ background: "rgba(255,255,255,0.02)", color: "var(--text-secondary)", fontSize: "0.75rem" }}>
-            {/* 기조실 확정 3종 */}
-            <th>{headers.zAdminReason1 || "사유(기조실)"}</th>
-            <th>{headers.aaAdminReason2 || "종류(기조실)"}</th>
-            <th style={{ borderRight: "1px solid rgba(255,255,255,0.1)" }}>{headers.abAdminDetail || "상세(기조실)"}</th>
+            {/* 기조실 확정 3종 (접기/펼치기) */}
+            {showAdminCols ? (
+              <>
+                <th>{headers.zAdminReason1 || "사유(기조실)"}</th>
+                <th>{headers.aaAdminReason2 || "종류(기조실)"}</th>
+                <th style={{ borderRight: "1px solid rgba(255,255,255,0.1)" }}>{headers.abAdminDetail || "상세(기조실)"}</th>
+              </>
+            ) : (
+              <th style={{ borderRight: "1px solid rgba(255,255,255,0.1)", fontSize: "0.7rem", opacity: 0.5 }}>—</th>
+            )}
             {/* 사업부 작성 4종 */}
             <th style={{ color: "#a5b4fc" }}>{headers.vReason1 || "퇴원사유(분류1)"}</th>
             <th style={{ color: "#a5b4fc" }}>{headers.wReason2 || "퇴원종류(분류2)"}</th>
@@ -667,21 +833,32 @@ export default function EditorDashboard() {
           {filteredInputRecords.map((r, idx) => {
             const currentOptions = categories[r.vReason1] || [];
             const isClosed = r.status === "closed";
+            const isHighlighted = highlightedRowId === r.id;
 
             return (
-              <tr key={r.id}>
+              <tr key={r.id} id={`input-row-${r.id}`}
+                style={isHighlighted ? { background: "rgba(251,191,36,0.18)", transition: "background 0.5s" } : undefined}
+              >
                 {/* # */}
                 <td style={{ color: "var(--text-secondary)", textAlign: "center" }}>{idx + 1}</td>
 
-                {/* 기조실 확정 3종 */}
-                <td style={{ opacity: 0.7 }}>{r.zAdminReason1 || "-"}</td>
-                <td style={{ opacity: 0.7 }}>{r.aaAdminReason2 || "-"}</td>
-                <td style={{ opacity: 0.7, borderRight: "1px solid rgba(255,255,255,0.1)" }}>
-                  {r.abAdminDetail || "-"}
-                  {isClosed && (
-                    <span style={{ marginLeft: "0.4rem", fontSize: "0.7rem", color: "#f87171" }}>🔒마감</span>
-                  )}
-                </td>
+                {/* 기조실 확정 3종 (접기/펼치기) */}
+                {showAdminCols ? (
+                  <>
+                    <td style={{ opacity: 0.7 }}>{r.zAdminReason1 || "-"}</td>
+                    <td style={{ opacity: 0.7 }}>{r.aaAdminReason2 || "-"}</td>
+                    <td style={{ opacity: 0.7, borderRight: "1px solid rgba(255,255,255,0.1)" }}>
+                      {r.abAdminDetail || "-"}
+                      {isClosed && (
+                        <span style={{ marginLeft: "0.4rem", fontSize: "0.7rem", color: "#f87171" }}>🔒마감</span>
+                      )}
+                    </td>
+                  </>
+                ) : (
+                  <td style={{ borderRight: "1px solid rgba(255,255,255,0.1)", textAlign: "center", opacity: 0.4 }}>
+                    {isClosed && <span style={{ fontSize: "0.7rem", color: "#f87171" }}>🔒</span>}
+                  </td>
+                )}
 
                 {/* 사업부 작성 4종 */}
                 <td>
@@ -762,20 +939,45 @@ export default function EditorDashboard() {
         {/* 툴바 및 필터 영역 (인쇄 시 숨김) */}
         <div className="print-hide" style={{ display: "flex", gap: "1rem", alignItems: "center", flexWrap: "wrap" }}>
 
-          {/* 월별 필터 드롭다운 */}
+          {/* 사유 작성 탭 — 월 필터 */}
           {activeTab === "input" && (
             <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
               <span style={{ fontSize: "0.95rem", color: "var(--text-secondary)", fontWeight: 600 }}>월:</span>
-              <select
-                className="filter-select"
-                value={selectedMonth}
-                onChange={(e) => setSelectedMonth(e.target.value)}
-              >
+              <select className="filter-select" value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)}>
                 <option value="all">전체 월</option>
-                {monthOptions.map(m => (
-                  <option key={m} value={m}>{m}</option>
-                ))}
+                {monthOptions.map(m => <option key={m} value={m}>{m}</option>)}
               </select>
+            </div>
+          )}
+
+          {/* 보고서 탭 — 년월/분기 필터 */}
+          {activeTab === "report" && (
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+              <div style={{ display: "flex", borderRadius: "6px", overflow: "hidden", border: "1px solid rgba(255,255,255,0.15)" }}>
+                <button
+                  onClick={() => setReportViewMode("month")}
+                  style={{ padding: "0.3rem 0.75rem", fontSize: "0.82rem", cursor: "pointer", border: "none",
+                    background: reportViewMode === "month" ? "rgba(99,102,241,0.4)" : "transparent",
+                    color: reportViewMode === "month" ? "#a5b4fc" : "var(--text-secondary)" }}
+                >월별</button>
+                <button
+                  onClick={() => setReportViewMode("quarter")}
+                  style={{ padding: "0.3rem 0.75rem", fontSize: "0.82rem", cursor: "pointer", border: "none",
+                    background: reportViewMode === "quarter" ? "rgba(99,102,241,0.4)" : "transparent",
+                    color: reportViewMode === "quarter" ? "#a5b4fc" : "var(--text-secondary)" }}
+                >분기별</button>
+              </div>
+              {reportViewMode === "month" ? (
+                <select className="filter-select" value={reportSelectedMonth} onChange={e => setReportSelectedMonth(e.target.value)}>
+                  <option value="all">전체 월</option>
+                  {monthOptions.map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
+              ) : (
+                <select className="filter-select" value={reportSelectedQuarter} onChange={e => setReportSelectedQuarter(e.target.value)}>
+                  <option value="all">전체 분기</option>
+                  {quarterOptions.map(q => <option key={q} value={q}>{q.replace("-Q", "년 Q")}</option>)}
+                </select>
+              )}
             </div>
           )}
 
@@ -798,7 +1000,7 @@ export default function EditorDashboard() {
                 임시저장
               </button>
               <button className="btn-primary" onClick={handleFinalSubmit} style={{ fontSize: "1rem" }}>
-                전체저장
+                저장 및 전송
               </button>
             </div>
           )}
@@ -831,6 +1033,94 @@ export default function EditorDashboard() {
       </div>
 
       <ChatbotOverlay />
+
+      {/* 분류별 차이 팝업 */}
+      {diffPopup && (
+        <div
+          style={{
+            position: "fixed", zIndex: 1000,
+            top: `calc(50% + ${popupPos.y}px)`,
+            left: `calc(50% + ${popupPos.x}px)`,
+            transform: "translate(-50%, -50%)",
+            background: "var(--bg-secondary, #1e1e2e)", borderRadius: "12px",
+            border: "1px solid rgba(255,255,255,0.2)", padding: "0",
+            maxWidth: "90vw", maxHeight: "80vh",
+            minWidth: "640px", display: "flex", flexDirection: "column",
+            boxShadow: "0 8px 40px rgba(0,0,0,0.6)",
+          }}
+        >
+          {/* 드래그 핸들 — 헤더 */}
+          <div
+            onMouseDown={(e) => {
+              dragRef.current = { startX: e.clientX, startY: e.clientY, origX: popupPos.x, origY: popupPos.y };
+              const onMove = (ev: MouseEvent) => {
+                if (!dragRef.current) return;
+                setPopupPos({ x: dragRef.current.origX + ev.clientX - dragRef.current.startX, y: dragRef.current.origY + ev.clientY - dragRef.current.startY });
+              };
+              const onUp = () => { dragRef.current = null; window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+              window.addEventListener("mousemove", onMove);
+              window.addEventListener("mouseup", onUp);
+            }}
+            style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.9rem 1.2rem 0.7rem",
+              borderBottom: "1px solid rgba(255,255,255,0.1)", cursor: "grab", userSelect: "none",
+              borderRadius: "12px 12px 0 0", background: "rgba(255,255,255,0.03)" }}
+          >
+            <h3 style={{ margin: 0, fontSize: "0.95rem" }}>
+              🔍 <span style={{ color: "#fbbf24" }}>{diffPopup.category}</span> — 사업부 vs 기조실 차이 내역
+            </h3>
+            <button
+              onClick={() => { setDiffPopup(null); setPopupPos({ x: 0, y: 0 }); }}
+              style={{ background: "transparent", border: "none", color: "var(--text-secondary)", fontSize: "1.2rem", cursor: "pointer", lineHeight: 1 }}
+            >✕</button>
+          </div>
+
+          {/* 내용 */}
+          <div style={{ padding: "1rem 1.2rem", overflow: "auto" }}>
+            {diffPopup.records.length === 0 ? (
+              <p style={{ opacity: 0.6, fontSize: "0.88rem" }}>차이 내역이 없습니다.</p>
+            ) : (
+              <table style={{ fontSize: "0.8rem", borderCollapse: "collapse", width: "100%" }}>
+                <thead>
+                  <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.15)" }}>
+                    <th style={{ padding: "0.4rem 0.75rem", textAlign: "left", color: "var(--text-secondary)" }}>#</th>
+                    <th style={{ padding: "0.4rem 0.75rem", textAlign: "left", color: "var(--text-secondary)" }}>학생명</th>
+                    <th style={{ padding: "0.4rem 0.75rem", textAlign: "left", color: "var(--text-secondary)" }}>반명</th>
+                    <th style={{ padding: "0.4rem 0.75rem", textAlign: "left", color: "var(--text-secondary)" }}>수익코드</th>
+                    <th style={{ padding: "0.4rem 0.75rem", textAlign: "left", color: "#a5b4fc" }}>사업부 작성</th>
+                    <th style={{ padding: "0.4rem 0.75rem", textAlign: "left", color: "#34d399" }}>기조실 확정</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {diffPopup.records.map((r, i) => (
+                    <tr key={r.id} style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                      <td style={{ padding: "0.35rem 0.75rem", color: "var(--text-secondary)" }}>{i + 1}</td>
+                      <td style={{ padding: "0.35rem 0.75rem" }}>
+                        <span
+                          style={{ color: "#60a5fa", fontWeight: 600, cursor: "pointer", textDecoration: "underline" }}
+                          title="클릭하면 해당 행으로 이동 (팝업 유지)"
+                          onClick={() => {
+                            setHighlightedRowId(r.id);
+                            document.getElementById(`input-row-${r.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+                            setTimeout(() => setHighlightedRowId(null), 2500);
+                          }}
+                        >{r.studentName}</span>
+                      </td>
+                      <td style={{ padding: "0.35rem 0.75rem" }}>{r.className}</td>
+                      <td style={{ padding: "0.35rem 0.75rem", color: "var(--accent-primary, #a5b4fc)", fontWeight: 700 }}>{r.code}</td>
+                      <td style={{ padding: "0.35rem 0.75rem", color: r.vReason1?.trim() === diffPopup.category ? "#a5b4fc" : "#f87171" }}>
+                        {r.vReason1 || <span style={{ opacity: 0.4 }}>미작성</span>}
+                      </td>
+                      <td style={{ padding: "0.35rem 0.75rem", color: r.zAdminReason1?.trim() === diffPopup.category ? "#34d399" : "#f87171" }}>
+                        {r.zAdminReason1 || <span style={{ opacity: 0.4 }}>미확정</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+      )}
     </>
   );
 }
