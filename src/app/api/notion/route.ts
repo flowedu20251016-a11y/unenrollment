@@ -109,15 +109,24 @@ export async function POST(request: Request) {
       });
     }
 
-    // DB 스키마 조회 → title 속성 이름 자동 감지
-    const db = await notion.databases.retrieve({ database_id: databaseId! });
-    const dbProps = db.properties as Record<string, any>;
+    // DB 스키마 조회 → title 속성 이름 자동 감지 (실패해도 기본값으로 계속 진행)
+    let titlePropName = "이름";
+    let datePropName: string | null = null;
+    let textPropName: string | null = null;
+    let numPropName: string | null = null;
 
-    // title 타입인 속성 이름 찾기 (보통 "제목", "Name", "이름" 등)
-    const titlePropName = Object.keys(dbProps).find(k => dbProps[k].type === "title") || "제목";
-    const datePropName  = Object.keys(dbProps).find(k => dbProps[k].type === "date")  || null;
-    const textPropName  = Object.keys(dbProps).find(k => dbProps[k].type === "rich_text") || null;
-    const numPropName   = Object.keys(dbProps).find(k => dbProps[k].type === "number") || null;
+    try {
+      const db = await notion.databases.retrieve({ database_id: databaseId! });
+      if ("properties" in db && db.properties) {
+        const dbProps = db.properties as Record<string, any>;
+        titlePropName = Object.keys(dbProps).find(k => dbProps[k]?.type === "title") || "이름";
+        datePropName  = Object.keys(dbProps).find(k => dbProps[k]?.type === "date")  || null;
+        textPropName  = Object.keys(dbProps).find(k => dbProps[k]?.type === "rich_text") || null;
+        numPropName   = Object.keys(dbProps).find(k => dbProps[k]?.type === "number") || null;
+      }
+    } catch (schemaErr) {
+      console.warn("Notion DB 스키마 조회 실패, 기본값 사용:", schemaErr);
+    }
 
     // 속성 동적 구성
     const pageProperties: Record<string, any> = {
