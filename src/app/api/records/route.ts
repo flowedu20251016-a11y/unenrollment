@@ -3,11 +3,12 @@ import { getSheetsInstance } from "@/lib/google";
 
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const { searchParams } = new URL(request.url);
     const sheets = getSheetsInstance();
     const sheetId = process.env.GOOGLE_SHEET_ID;
-    const tabName = process.env.GOOGLE_SHEET_TAB_NAME;
+    const tabName = searchParams.get('tab') || process.env.GOOGLE_SHEET_TAB_NAME;
 
     // A5:BZ 범위 호출
     const response = await sheets.spreadsheets.values.get({

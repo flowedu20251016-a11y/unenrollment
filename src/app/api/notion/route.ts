@@ -109,35 +109,55 @@ export async function POST(request: Request) {
       });
     }
 
-    // 새 페이지(Database entry) 생성 - 사용자 지시대로 속성 매핑!
-    await notion.pages.create({
-      parent: { database_id: databaseId },
-      properties: {
-        "제목": {
-          title: [
-            { text: { content: pageTitle } }
-          ],
-        },
-        "발생일시": {
-          date: {
-            start: todayIso
-          }
-        },
-        "작성자": {
-          rich_text: [
-            { text: { content: userName || "알 수 없음" } }
-          ]
-        },
-        "수익코드": {
-          number: primaryCode
-        }
-      },
-      children: childrenBlocks,
-    });
+    // DB 스키마 조회 → title 속성 이름 자동 감지
+    const db = await notion.databases.retrieve({ database_id: databaseId! });
+    const dbProps = db.properties as Record<string, any>;
+
+    // title 타입인 속성 이름 찾기 (보통 "제목", "Name", "이름" 등)
+    const titlePropName = Object.keys(dbProps).find(k => dbProps[k].type === "title") || "제목";
+    const datePropName  = Object.keys(dbProps).find(k => dbProps[k].type === "date")  || null;
+    const textPropName  = Object.keys(dbProps).find(k => dbProps[k].type === "rich_text") || null;
+    const numPropName   = Object.keys(dbProps).find(k => dbProps[k].type === "number") || null;
+
+    // 속성 동적 구성
+    const pageProperties: Record<string, any> = {
+      [titlePropName]: { title: [{ text: { content: pageTitle } }] },
+    };
+    if (datePropName) pageProperties[datePropName] = { date: { start: todayIso } };
+    if (textPropName) pageProperties[textPropName] = { rich_text: [{ text: { content: userName || "알 수 없음" } }] };
+    if (numPropName)  pageProperties[numPropName]  = { number: primaryCode };
+
+    // 새 페이지 생성 (멘션 포함 → 실패 시 멘션 없이 재시도)
+    const createPage = async (withMention: boolean) => {
+      const safeBlocks = withMention ? childrenBlocks : childrenBlocks.map(block => ({
+        ...block,
+        paragraph: block.paragraph ? {
+          rich_text: (block.paragraph.rich_text as any[]).filter((t: any) => t.type !== "mention")
+        } : block.paragraph
+      }));
+      return notion.pages.create({
+        parent: { database_id: databaseId! },
+        properties: pageProperties,
+        children: safeBlocks,
+      });
+    };
+
+    try {
+      await createPage(true);
+    } catch (mentionErr: any) {
+      const errBody = mentionErr?.body ? JSON.parse(mentionErr.body) : {};
+      if (mentionErr?.status === 400 || errBody?.status === 400) {
+        console.warn("Notion mention failed, retrying without mentions...", errBody);
+        await createPage(false);
+      } else {
+        throw mentionErr;
+      }
+    }
 
     return NextResponse.json({ success: true });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Notion Error:", error);
-    return NextResponse.json({ error: "Failed to send Notion notification" }, { status: 500 });
+    const detail = error?.body ? JSON.parse(error.body) : (error?.message || String(error));
+    return NextResponse.json({ error: "Failed to send Notion notification", detail }, { status: 500 });
   }
 }

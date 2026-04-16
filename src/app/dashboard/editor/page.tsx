@@ -72,6 +72,10 @@ export default function EditorDashboard() {
   const [popupPos, setPopupPos] = useState({ x: 0, y: 0 });
   const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
 
+  // 누적 데이터 (초기 로드 시 현재 시트와 함께 불러옴)
+  const [accReportRecords, setAccReportRecords] = useState<ReportRecordType[]>([]);
+  const [accInputRecords, setAccInputRecords] = useState<InputRecordType[]>([]);
+
   // 컬럼 정렬
   const [sortConfig, setSortConfig] = useState<{ key: keyof InputRecordType; dir: "asc" | "desc" } | null>(null);
 
@@ -86,10 +90,19 @@ export default function EditorDashboard() {
     return sortConfig.dir === "asc" ? " ↑" : " ↓";
   };
 
-  // 월(colA) 목록 추출
-  const monthOptions = useMemo(
-    () => Array.from(new Set(inputRecords.map(r => r.colA).filter(Boolean))).sort().reverse(),
+  // 현재 시트에 있는 월 집합 (편집 가능 여부 판단용)
+  const currentMonthsSet = useMemo(
+    () => new Set(inputRecords.map(r => r.colA).filter(Boolean)),
     [inputRecords]
+  );
+
+  // 전체 월 목록 (현재 시트 + 누적 시트, 중복 제거)
+  const monthOptions = useMemo(
+    () => Array.from(new Set([
+      ...inputRecords.map(r => r.colA),
+      ...accInputRecords.map(r => r.colA),
+    ].filter(Boolean))).sort().reverse(),
+    [inputRecords, accInputRecords]
   );
 
   // 분기 목록 추출 (YYYY-QN 형식)
@@ -106,31 +119,52 @@ export default function EditorDashboard() {
     return Array.from(set).sort().reverse();
   }, [monthOptions]);
 
-  // 보고서 탭 필터링 (inputRecords의 code를 기준으로 연결)
+  // 선택한 월이 누적 시트 데이터(이전달)인지 여부 → 읽기 전용 모드
+  const isViewingAccumulated = useMemo(() =>
+    selectedMonth !== "all" && !currentMonthsSet.has(selectedMonth),
+    [selectedMonth, currentMonthsSet]
+  );
+
+  // 보고서 탭 필터링 — 현재/누적 시트 자동 라우팅
   const filteredReportRecords = useMemo(() => {
     if (reportViewMode === "month") {
       if (reportSelectedMonth === "all") return reportRecords;
-      const codes = new Set(inputRecords.filter(r => r.colA === reportSelectedMonth).map(r => r.code));
-      return reportRecords.filter(r => codes.has(r.code));
+      if (currentMonthsSet.has(reportSelectedMonth)) {
+        // 현재 시트
+        const codes = new Set(inputRecords.filter(r => r.colA === reportSelectedMonth).map(r => r.code));
+        return reportRecords.filter(r => codes.has(r.code));
+      } else {
+        // 누적 시트 (이전달)
+        const codes = new Set(accInputRecords.filter(r => r.colA === reportSelectedMonth).map(r => r.code));
+        return accReportRecords.filter(r => codes.has(r.code));
+      }
     } else {
       if (reportSelectedQuarter === "all") return reportRecords;
       const [year, q] = reportSelectedQuarter.split("-Q");
       const qNum = parseInt(q);
       const months = [1, 2, 3].map(i => `${year}-${String((qNum - 1) * 3 + i).padStart(2, "0")}`);
-      const codes = new Set(inputRecords.filter(r => months.includes(r.colA)).map(r => r.code));
-      return reportRecords.filter(r => codes.has(r.code));
+      // 분기 내 월을 현재/누적으로 분리
+      const currMonths = months.filter(m => currentMonthsSet.has(m));
+      const histMonths = months.filter(m => !currentMonthsSet.has(m));
+      const currCodes = new Set(inputRecords.filter(r => currMonths.includes(r.colA)).map(r => r.code));
+      const histCodes = new Set(accInputRecords.filter(r => histMonths.includes(r.colA)).map(r => r.code));
+      const currFiltered = reportRecords.filter(r => currCodes.has(r.code));
+      // 누적 데이터에서는 현재 시트와 중복되는 코드 제외
+      const histFiltered = accReportRecords.filter(r => histCodes.has(r.code) && !currCodes.has(r.code));
+      return [...currFiltered, ...histFiltered];
     }
-  }, [reportRecords, inputRecords, reportViewMode, reportSelectedMonth, reportSelectedQuarter]);
+  }, [reportRecords, accReportRecords, inputRecords, accInputRecords, reportViewMode, reportSelectedMonth, reportSelectedQuarter, currentMonthsSet]);
 
-  // 현재 유저가 가진 수익코드 목록 (실제 데이터에서 추출 — 가장 정확)
+  // 현재 유저가 가진 수익코드 목록 (표시된 데이터 기준 — 현재/누적 자동 전환)
   const availableCodes = useMemo(() => {
     if (!userInfo) return [];
-    // admin이든 user이든, 실제 화면에 로드된 데이터의 수익코드를 기준으로 필터 표시
-    const codesFromData = Array.from(new Set(inputRecords.map(r => r.code).filter(Boolean))).sort() as string[];
+    const source = isViewingAccumulated
+      ? accInputRecords.filter(r => selectedMonth === "all" || r.colA === selectedMonth)
+      : inputRecords;
+    const codesFromData = Array.from(new Set(source.map(r => r.code).filter(Boolean))).sort() as string[];
     if (codesFromData.length > 0) return codesFromData;
-    // 데이터 로딩 전 fallback
     return (userInfo.profitCodes || []) as string[];
-  }, [inputRecords, userInfo]);
+  }, [inputRecords, accInputRecords, userInfo, isViewingAccumulated, selectedMonth]);
 
   // 월 필터만 적용한 레코드 (코드 선택과 무관하게 통계용)
   const monthFilteredRecords = useMemo(() =>
@@ -194,9 +228,10 @@ export default function EditorDashboard() {
     }
   };
 
-  // 월 + 수익코드 복합 필터 + 정렬
+  // 월 + 수익코드 복합 필터 + 정렬 (이전달이면 누적 시트 사용)
   const filteredInputRecords = useMemo(() => {
-    let list = inputRecords.filter(r => {
+    const source = isViewingAccumulated ? accInputRecords : inputRecords;
+    let list = source.filter(r => {
       const monthMatch = selectedMonth === "all" || r.colA === selectedMonth;
       const codeMatch = selectedCodes.length === 0 || selectedCodes.includes(r.code);
       return monthMatch && codeMatch;
@@ -209,7 +244,7 @@ export default function EditorDashboard() {
       });
     }
     return list;
-  }, [inputRecords, selectedMonth, selectedCodes, sortConfig]);
+  }, [inputRecords, accInputRecords, selectedMonth, selectedCodes, sortConfig, isViewingAccumulated]);
 
   // 퇴원종류 비교 통계
   const reasonStats = useMemo(() => {
@@ -273,25 +308,35 @@ export default function EditorDashboard() {
   const fetchData = async (user: any) => {
     setLoading(true);
     try {
-      // 두 API를 동시에 호출 (병렬 처리)
-      const [reportRes, inputRes] = await Promise.all([
+      // 현재 시트 + 누적 시트 동시 호출 (4개 병렬)
+      const [reportRes, inputRes, accReportRes, accInputRes] = await Promise.all([
         fetch("/api/records", { cache: "no-store" }),
         fetch("/api/records/input", { cache: "no-store" }),
+        fetch("/api/records?tab=누적보고서", { cache: "no-store" }),
+        fetch("/api/records/input?tab=누적최종", { cache: "no-store" }),
       ]);
-      const [reportData, inputData] = await Promise.all([
+      const [reportData, inputData, accReportData, accInputData] = await Promise.all([
         reportRes.json(),
         inputRes.json(),
+        accReportRes.json(),
+        accInputRes.json(),
       ]);
       let rRecords = reportData.records || [];
       let iRecords = inputData.records || [];
+      let arRecords = accReportData.records || [];
+      let aiRecords = accInputData.records || [];
 
       if (user && user.role !== "admin") {
         const myCodes = user.profitCodes || [];
         rRecords = rRecords.filter((r: any) => myCodes.includes(String(r.code)));
         iRecords = iRecords.filter((r: any) => myCodes.includes(String(r.code)));
+        arRecords = arRecords.filter((r: any) => myCodes.includes(String(r.code)));
+        aiRecords = aiRecords.filter((r: any) => myCodes.includes(String(r.code)));
       }
 
       setReportRecords(rRecords);
+      setAccReportRecords(arRecords);
+      setAccInputRecords(aiRecords);
 
       // 임시저장 데이터가 있으면 복원 여부 확인
       const draftKey = `dropout_draft_${user?.userid}`;
@@ -323,6 +368,7 @@ export default function EditorDashboard() {
       setLoading(false);
     }
   };
+
 
   // -----------------------------------------------------
   // 기능 로직
@@ -398,7 +444,7 @@ export default function EditorDashboard() {
       const saveData = await res.json();
       if (!saveData.success) throw new Error("스프레드시트 업데이트 실패");
 
-      await fetch("/api/notion", {
+      const notionRes = await fetch("/api/notion", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -409,9 +455,15 @@ export default function EditorDashboard() {
           notionUserId: userInfo?.notionUserId || ""
         })
       });
+      if (!notionRes.ok) {
+        const notionErr = await notionRes.json().catch(() => ({}));
+        console.error("Notion 알림 오류:", notionErr);
+        alert(`저장은 완료됐지만 노션 알림 전송에 실패했습니다.\n\n오류: ${JSON.stringify(notionErr?.detail || notionErr)}`);
+      } else {
+        alert("성공적으로 저장 및 알림이 전송되었습니다!");
+      }
 
       localStorage.removeItem(`dropout_draft_${userInfo?.userid}`);
-      alert("성공적으로 저장 및 알림이 전송되었습니다!");
       fetchData(userInfo);
     } catch (err) {
       alert(String(err));
@@ -466,19 +518,26 @@ export default function EditorDashboard() {
     if (msg === null) return;
 
     try {
-      const userInfoStr = localStorage.getItem("userInfo");
-      const userInfo = userInfoStr ? JSON.parse(userInfoStr) : null;
+      const userInfoStr = localStorage.getItem("dropout_user");
+      const reqUser = userInfoStr ? JSON.parse(userInfoStr) : null;
 
-      await fetch("/api/notion", {
+      const res = await fetch("/api/notion", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           type: "request-edit",
           message: msg,
           profitCodes: record.code,
-          userName: userInfo?.name || "알 수 없는 사용자",
+          userName: reqUser?.userName || userInfo?.userName || "알 수 없는 사용자",
+          notionUserId: reqUser?.notionUserId || userInfo?.notionUserId || "",
         }),
       });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        console.error("Notion 수정요청 오류:", err);
+        alert("알림 전송 중 오류가 발생했습니다. (서버 오류)");
+        return;
+      }
       alert("수정 권한 요청이 관리자 노션으로 전송되었습니다.");
     } catch (e) {
       console.error(e);
@@ -767,9 +826,20 @@ export default function EditorDashboard() {
     </div>
   );
 
-  // TAB 2: 사유 작성 모드
+
+  // TAB 2: 사유 작성 / 이전달 조회 모드
   const renderInputTab = () => (
     <div className="data-table-container" style={{ padding: 0, margin: 0, border: "none" }}>
+      {/* 이전달 조회 중 배너 */}
+      {isViewingAccumulated && (
+        <div style={{
+          padding: "0.6rem 1rem", background: "rgba(251,191,36,0.1)", borderBottom: "2px solid rgba(251,191,36,0.4)",
+          display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.84rem",
+        }}>
+          <span style={{ color: "#fbbf24", fontWeight: 700 }}>📁 이전 데이터 조회 중 ({selectedMonth})</span>
+          <span style={{ color: "var(--text-secondary)" }}>— 누적 시트 데이터입니다. 수정 불가 (읽기 전용)</span>
+        </div>
+      )}
       {/* 수익코드 필터 */}
       {renderCodeFilter()}
 
@@ -832,7 +902,7 @@ export default function EditorDashboard() {
         <tbody>
           {filteredInputRecords.map((r, idx) => {
             const currentOptions = categories[r.vReason1] || [];
-            const isClosed = r.status === "closed";
+            const isClosed = r.status === "closed" || isViewingAccumulated;
             const isHighlighted = highlightedRowId === r.id;
 
             return (
@@ -898,7 +968,7 @@ export default function EditorDashboard() {
                   <input type="text" className="input-field" placeholder="상세 내용 기입"
                     value={r.yDetail} onChange={e => handleInputChange(r.id, "yDetail", e.target.value)}
                     style={{ minWidth: "160px" }} disabled={isClosed} />
-                  {isClosed && (
+                  {isClosed && !isViewingAccumulated && (
                     <div style={{ marginTop: "0.3rem" }}>
                       <button onClick={() => handleRequestEdit(r)} className="print-hide"
                         style={{ fontSize: "0.7rem", padding: "0.2rem 0.5rem", background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: "4px", color: "white", cursor: "pointer" }}>
@@ -993,7 +1063,7 @@ export default function EditorDashboard() {
             </div>
           )}
 
-          {activeTab === "input" && (
+          {activeTab === "input" && !isViewingAccumulated && (
             <div style={{ display: "flex", gap: "0.5rem", marginLeft: "auto" }}>
               <button className="btn-secondary" onClick={handleTempSave}
                 style={{ fontSize: "0.9rem", border: "1px solid rgba(251,191,36,0.5)", color: "#fbbf24" }}>

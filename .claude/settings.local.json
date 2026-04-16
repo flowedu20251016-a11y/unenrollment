@@ -6,7 +6,18 @@
       "Bash(taskkill /PID 18068 /F)",
       "Bash(cmd /c \"taskkill /PID 18068 /F\")",
       "Bash(powershell -Command \"Stop-Process -Id 18068 -Force\")",
-      "Bash(powershell -Command \"Get-Process node -ErrorAction SilentlyContinue | Stop-Process -Force\")"
+      "Bash(powershell -Command \"Get-Process node -ErrorAction SilentlyContinue | Stop-Process -Force\")",
+      "Bash(taskkill /PID 19868 /F)",
+      "Bash(cmd /c \"taskkill /PID 19868 /F\")",
+      "Bash(cmd /c \"taskkill /IM node.exe /F\")",
+      "Bash(cmd /c \"taskkill /PID 19868 /T /F 2>&1\")",
+      "Bash(cmd /c \"netstat -ano | findstr :3000\")",
+      "Bash(cmd /c \"wmic process where ProcessId=19868 get Name,CommandLine 2>&1\")",
+      "Bash(cmd /c \"del /F /Q \\\\\"C:\\\\Users\\\\플로우교육\\(주\\)\\\\Desktop\\\\보조작업용\\\\dropout-analysis\\\\.next\\\\dev\\\\logs\\\\next-development.log\\\\\" 2>&1 & rmdir /S /Q \\\\\"C:\\\\Users\\\\플로우교육\\(주\\)\\\\Desktop\\\\보조작업용\\\\dropout-analysis\\\\.next\\\\dev\\\\\" 2>&1\")",
+      "Bash(cmd /c \"netstat -ano | findstr :3000 2>&1\")",
+      "Bash(cmd /c \"rmdir /S /Q \\\\\"C:\\\\Users\\\\플로우교육\\(주\\)\\\\Desktop\\\\보조작업용\\\\dropout-analysis\\\\.next\\\\\" 2>&1 && echo done\")",
+      "Bash(cmd /c \"taskkill /IM node.exe /F /T 2>&1\")",
+      "Bash(npx tsc:*)"
     ]
   }
 }

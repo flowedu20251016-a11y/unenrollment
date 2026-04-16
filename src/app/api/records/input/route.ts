@@ -3,17 +3,19 @@ import { getSheetsInstance } from "@/lib/google";
 
 export const dynamic = 'force-dynamic';
 
-const SHEET_ID = '1tm22_10KEhSU9GHvdXCxw8dmMQWSno7GJbGO65aQNoc';
+const SHEET_ID = process.env.GOOGLE_SHEET_ID!;
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const { searchParams } = new URL(request.url);
+    const tabName = searchParams.get('tab') || '최종';
     const sheets = getSheetsInstance();
 
     // 1+2+3. 사유분류 & 헤더 & 데이터 동시 호출 (병렬 처리 — 속도 개선)
     const [categoryResponse, headerResponse, dataResponse] = await Promise.all([
       sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `사유분류!A2:C50` }),
-      sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `최종!A3:AZ3` }),
-      sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `최종!A4:AZ` }),
+      sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${tabName}!A3:AZ3` }),
+      sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${tabName}!A4:AZ` }),
     ]);
 
     const categoryRows = categoryResponse.data.values || [];
@@ -115,7 +117,9 @@ export async function GET() {
         abAdminDetail: row[28] || "",
 
         // 🔒 마감 여부 — AD열(29)에 'closed'가 있을 때만 잠금 (관리자가 명시적으로 마감해야 함)
-        status: row[29] === 'closed' ? 'closed' : 'pending'
+        // trim + toLowerCase로 공백/대소문자 차이 허용
+        // 이전 버그로 AC열(28)에 저장된 경우도 허용 (하위 호환)
+        status: (row[29]?.trim().toLowerCase() === 'closed' || row[28]?.trim().toLowerCase() === 'closed') ? 'closed' : 'pending'
       };
     }).filter(r => r.code); // 수익코드가 있는 줄만
 
