@@ -109,59 +109,86 @@ export async function POST(request: Request) {
       });
     }
 
-    // DB 스키마 조회 → title 속성 이름 자동 감지 (실패해도 기본값으로 계속 진행)
-    let titlePropName = "이름";
+    // DB 스키마 조회 → title 속성 이름 자동 감지 (실패해도 계속 진행)
+    let titlePropName: string | null = null;
     let datePropName: string | null = null;
     let textPropName: string | null = null;
     let numPropName: string | null = null;
+    let schemaLoaded = false;
 
     try {
       const db = await notion.databases.retrieve({ database_id: databaseId! });
       if ("properties" in db && db.properties) {
         const dbProps = db.properties as Record<string, any>;
-        titlePropName = Object.keys(dbProps).find(k => dbProps[k]?.type === "title") || "이름";
+        titlePropName = Object.keys(dbProps).find(k => dbProps[k]?.type === "title") || null;
         datePropName  = Object.keys(dbProps).find(k => dbProps[k]?.type === "date")  || null;
         textPropName  = Object.keys(dbProps).find(k => dbProps[k]?.type === "rich_text") || null;
         numPropName   = Object.keys(dbProps).find(k => dbProps[k]?.type === "number") || null;
+        schemaLoaded = true;
       }
     } catch (schemaErr) {
-      console.warn("Notion DB 스키마 조회 실패, 기본값 사용:", schemaErr);
+      console.warn("Notion DB 스키마 조회 실패, 속성명 순차 시도:", schemaErr);
     }
 
-    // 속성 동적 구성
-    const pageProperties: Record<string, any> = {
-      [titlePropName]: { title: [{ text: { content: pageTitle } }] },
-    };
-    if (datePropName) pageProperties[datePropName] = { date: { start: todayIso } };
-    if (textPropName) pageProperties[textPropName] = { rich_text: [{ text: { content: userName || "알 수 없음" } }] };
-    if (numPropName)  pageProperties[numPropName]  = { number: primaryCode };
-
-    // 새 페이지 생성 (멘션 포함 → 실패 시 멘션 없이 재시도)
-    const createPage = async (withMention: boolean) => {
-      const safeBlocks = withMention ? childrenBlocks : childrenBlocks.map(block => ({
-        ...block,
-        paragraph: block.paragraph ? {
-          rich_text: (block.paragraph.rich_text as any[]).filter((t: any) => t.type !== "mention")
-        } : block.paragraph
-      }));
-      return notion.pages.create({
-        parent: { database_id: databaseId! },
-        properties: pageProperties,
-        children: safeBlocks,
-      });
+    // 스키마 조회 실패 시 부가 속성(날짜/텍스트/숫자)은 생략 — title만 시도
+    const buildProperties = (name: string): Record<string, any> => {
+      const props: Record<string, any> = {
+        [name]: { title: [{ text: { content: pageTitle } }] },
+      };
+      if (schemaLoaded) {
+        if (datePropName) props[datePropName] = { date: { start: todayIso } };
+        if (textPropName) props[textPropName] = { rich_text: [{ text: { content: userName || "알 수 없음" } }] };
+        if (numPropName)  props[numPropName]  = { number: primaryCode };
+      }
+      return props;
     };
 
-    try {
-      await createPage(true);
-    } catch (mentionErr: any) {
-      const errBody = mentionErr?.body ? JSON.parse(mentionErr.body) : {};
-      if (mentionErr?.status === 400 || errBody?.status === 400) {
-        console.warn("Notion mention failed, retrying without mentions...", errBody);
-        await createPage(false);
-      } else {
-        throw mentionErr;
+    // 멘션 제거 블록
+    const strippedBlocks = childrenBlocks.map(block => ({
+      ...block,
+      paragraph: block.paragraph ? {
+        rich_text: (block.paragraph.rich_text as any[]).filter((t: any) => t.type !== "mention")
+      } : block.paragraph
+    }));
+
+    // title 속성명 후보 (스키마에서 찾은 이름 우선, 그 다음 일반 후보)
+    const TITLE_CANDIDATES = [
+      ...(titlePropName ? [titlePropName] : []),
+      "이름", "제목", "Name", "title", "Title",
+    ].filter((v, i, arr) => arr.indexOf(v) === i); // 중복 제거
+
+    let lastErr: any = null;
+    for (const candidate of TITLE_CANDIDATES) {
+      try {
+        await notion.pages.create({
+          parent: { database_id: databaseId! },
+          properties: buildProperties(candidate),
+          children: childrenBlocks,
+        });
+        lastErr = null;
+        break; // 성공하면 루프 종료
+      } catch (err: any) {
+        const status = err?.status ?? (err?.body ? JSON.parse(err.body)?.status : null);
+        if (status === 400) {
+          // 멘션 문제인지 속성명 문제인지 구분: 멘션 없이 재시도
+          try {
+            await notion.pages.create({
+              parent: { database_id: databaseId! },
+              properties: buildProperties(candidate),
+              children: strippedBlocks,
+            });
+            lastErr = null;
+            break;
+          } catch (retryErr: any) {
+            lastErr = retryErr;
+            // 이 candidate도 실패 → 다음 후보로
+          }
+        } else {
+          throw err; // 400 외 에러(401, 404 등)는 즉시 throw
+        }
       }
     }
+    if (lastErr) throw lastErr;
 
     return NextResponse.json({ success: true });
   } catch (error: any) {
