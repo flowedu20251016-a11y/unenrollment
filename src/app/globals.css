@@ -1,22 +1,21 @@
-/* globals.css - 미려한 Vanilla CSS 기반 테마 시스템 */
+/* globals.css - 베이지 라이트 테마 */
 :root {
-  /* 프리미엄 컬러 팔레트 (다크 블루 / 퍼플 포인트) */
-  --bg-primary: #0f111a;
-  --bg-secondary: #1a1d2d;
-  --text-primary: #f8fafc;
-  --text-secondary: #94a3b8;
-  --accent-primary: #6366f1;
-  --accent-hover: #4f46e5;
-  --danger: #ef4444;
-  --success: #10b981;
-  --border-color: rgba(255, 255, 255, 0.1);
-  --glass-bg: rgba(26, 29, 45, 0.7);
-  --glass-border: rgba(255, 255, 255, 0.05);
+  --bg-primary: #faf8f4;
+  --bg-secondary: #f2ece2;
+  --text-primary: #1c1917;
+  --text-secondary: #78716c;
+  --accent-primary: #121212;
+  --accent-hover: #4338ca;
+  --danger: #dc2626;
+  --success: #059669;
+  --border-color: rgba(0, 0, 0, 0.08);
+  --glass-bg: rgba(250, 248, 244, 0.92);
+  --glass-border: rgba(0, 0, 0, 0.06);
 
-  --font-family: "Inter", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
-  --radius-md: 12px;
-  --radius-lg: 16px;
-  --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  --font-family: "DM Sans", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 * {
@@ -33,9 +32,9 @@ body {
   display: flex;
   flex-direction: column;
   overflow-x: hidden;
-  background-image: 
-    radial-gradient(circle at 15% 50%, rgba(99, 102, 241, 0.15), transparent 25%),
-    radial-gradient(circle at 85% 30%, rgba(139, 92, 246, 0.15), transparent 25%);
+  background-image:
+    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(194, 150, 80, 0.06), transparent),
+    radial-gradient(ellipse 60% 40% at 90% 90%, rgba(79, 70, 229, 0.04), transparent);
   background-attachment: fixed;
 }
 
@@ -49,14 +48,14 @@ h1 { font-size: 2.5rem; font-weight: 700; margin-bottom: 1rem; color: var(--text
 h2 { font-size: 1.75rem; font-weight: 600; margin-bottom: 0.75rem; }
 p { color: var(--text-secondary); line-height: 1.6; }
 
-/* Utilities (Glassmorphism & Shadows) */
+/* Glass Container */
 .glass-container {
   background: var(--glass-bg);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid var(--glass-border);
   border-radius: var(--radius-lg);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06), 0 4px 16px rgba(0, 0, 0, 0.04);
   padding: 2rem;
 }
 
@@ -73,18 +72,19 @@ p { color: var(--text-secondary); line-height: 1.6; }
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
+  letter-spacing: -0.01em;
 }
 
 .btn-primary:hover {
   background: var(--accent-hover);
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.25);
 }
 
 .input-field {
   width: 100%;
-  background: rgba(15, 17, 26, 0.6);
-  border: 1px solid var(--border-color);
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.12);
   color: var(--text-primary);
   padding: 0.75rem 1rem;
   border-radius: var(--radius-md);
@@ -95,24 +95,25 @@ p { color: var(--text-secondary); line-height: 1.6; }
 
 .input-field:focus {
   border-color: var(--accent-primary);
-  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
 }
 
 /* Animations */
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(10px); }
+  from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
 .animate-fade-in {
-  animation: fadeIn 0.6s ease-out forwards;
+  animation: fadeIn 0.4s ease-out forwards;
 }
 
-/* Secondary Button UI 보완 */
+/* Secondary Button */
 .btn-secondary {
-  background: rgba(255, 255, 255, 0.05);
+  background: #fff;
   color: var(--text-primary);
-  border: 1px solid var(--border-color);
+  border: 1px solid rgba(0, 0, 0, 0.1);
   padding: 0.75rem 1.5rem;
   border-radius: var(--radius-md);
   font-weight: 500;
@@ -122,57 +123,56 @@ p { color: var(--text-secondary); line-height: 1.6; }
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  backdrop-filter: blur(8px);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
 .btn-secondary:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.15);
-  border-color: rgba(255, 255, 255, 0.3);
-  transform: translateY(-2px);
+  background: #f5f3ef;
+  border-color: rgba(0, 0, 0, 0.15);
+  transform: translateY(-1px);
 }
 
 .btn-secondary:disabled {
-  opacity: 0.5;
+  opacity: 0.4;
   cursor: not-allowed;
 }
 
-/* 필터 셀렉트박스 고도화 UI */
+/* Filter Select */
 .filter-select {
-  background: rgba(99, 102, 241, 0.1);
-  color: #fff;
-  border: 1px solid rgba(99, 102, 241, 0.3);
+  background: #fff;
+  color: var(--text-primary);
+  border: 1px solid rgba(0, 0, 0, 0.12);
   padding: 0.5rem 1rem;
   border-radius: var(--radius-md);
   font-size: 0.95rem;
   cursor: pointer;
-  backdrop-filter: blur(4px);
   transition: var(--transition);
   outline: none;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
 }
 .filter-select:hover {
-  background: rgba(99, 102, 241, 0.2);
-  border-color: rgba(99, 102, 241, 0.5);
+  border-color: rgba(0, 0, 0, 0.2);
+  background: #f9f7f3;
 }
 .filter-select option {
-  background: var(--bg-secondary);
-  color: #fff;
+  background: #fff;
+  color: var(--text-primary);
 }
 
-/* --- 프린트(인쇄) 최적화 옵션 --- */
+/* --- 프린트 최적화 --- */
 @media print {
   @page {
-    size: A4 landscape; /* 가로 모드 강제 */
+    size: A4 landscape;
     margin: 10mm;
   }
-  
+
   body {
     background: none !important;
     background-color: white !important;
     color: black !important;
     overflow: visible !important;
   }
-  
-  /* 다크 테마 배경색 무효화 및 텍스트 검은색 처리 */
+
   .glass-container {
     background: transparent !important;
     border: none !important;
@@ -182,21 +182,18 @@ p { color: var(--text-secondary); line-height: 1.6; }
     margin: 0 !important;
   }
 
-  /* 테이블 검은선으로 나오게 적용 */
   table {
     border-collapse: collapse !important;
     background: none !important;
-    zoom: 0.8; /* 테이블이 너무 넓으면 스케일 축소 */
+    zoom: 0.8;
   }
   th, td {
     color: black !important;
     border: 1px solid #ccc !important;
     padding: 6px !important;
   }
-  
-  /* 검색/헤더/버튼 등 인쇄 시 숨김처리해야 할 영역 */
+
   .print-hide {
     display: none !important;
   }
 }
-

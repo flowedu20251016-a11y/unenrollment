@@ -120,10 +120,11 @@ export default function EditorDashboard() {
   }, [monthOptions]);
 
   // 선택한 월이 누적 시트 데이터(이전달)인지 여부 → 읽기 전용 모드
-  const isViewingAccumulated = useMemo(() =>
-    selectedMonth !== "all" && !currentMonthsSet.has(selectedMonth),
-    [selectedMonth, currentMonthsSet]
-  );
+  // 누적최종 탭에 해당 월 데이터가 있으면 누적최종 우선 (마감 완료된 데이터)
+  const isViewingAccumulated = useMemo(() => {
+    if (selectedMonth === "all") return false;
+    return accInputRecords.some(r => r.colA === selectedMonth);
+  }, [selectedMonth, accInputRecords]);
 
   // 보고서 탭 필터링 — 현재/누적 시트 자동 라우팅
   const filteredReportRecords = useMemo(() => {
@@ -327,11 +328,19 @@ export default function EditorDashboard() {
       let aiRecords = accInputData.records || [];
 
       if (user && user.role !== "admin") {
-        const myCodes = user.profitCodes || [];
-        rRecords = rRecords.filter((r: any) => myCodes.includes(String(r.code)));
-        iRecords = iRecords.filter((r: any) => myCodes.includes(String(r.code)));
-        arRecords = arRecords.filter((r: any) => myCodes.includes(String(r.code)));
-        aiRecords = aiRecords.filter((r: any) => myCodes.includes(String(r.code)));
+        const inputCodes = user.profitCodes || [];
+        const reportCodes: string[] = user.reportCodes || [];
+        // 보고서: reportCodes가 있으면 그것만, 없으면 입력코드 기준 (mid_admin은 전체)
+        const rCodes = user.role === "mid_admin"
+          ? null
+          : reportCodes.length > 0 ? reportCodes : inputCodes;
+        if (rCodes) {
+          rRecords = rRecords.filter((r: any) => rCodes.includes(String(r.code)));
+          arRecords = arRecords.filter((r: any) => rCodes.includes(String(r.code)));
+        }
+        // 입력: 항상 profitCodes 기준
+        iRecords = iRecords.filter((r: any) => inputCodes.includes(String(r.code)));
+        aiRecords = aiRecords.filter((r: any) => inputCodes.includes(String(r.code)));
       }
 
       setReportRecords(rRecords);
@@ -556,15 +565,15 @@ export default function EditorDashboard() {
     const isAdmin = userInfo?.role === "admin";
 
     return (
-      <div style={{ padding: "0.6rem 1rem", borderBottom: "1px solid rgba(255,255,255,0.08)", display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap", background: "rgba(255,255,255,0.02)" }}>
+      <div style={{ padding: "0.6rem 1rem", borderBottom: "1px solid rgba(0,0,0,0.08)", display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap", background: "rgba(0,0,0,0.02)" }}>
         <span style={{ fontSize: "0.82rem", color: "var(--text-secondary)", fontWeight: 600, whiteSpace: "nowrap" }}>수익코드:</span>
 
         {/* 전체 버튼 */}
         <button onClick={toggleAllCodes} style={{
           padding: "0.2rem 0.7rem", borderRadius: "999px", fontSize: "0.78rem", cursor: "pointer",
-          border: allSelected ? "1px solid #6366f1" : "1px solid rgba(255,255,255,0.2)",
-          background: allSelected ? "rgba(99,102,241,0.25)" : "transparent",
-          color: allSelected ? "#a5b4fc" : "var(--text-secondary)",
+          border: allSelected ? "1px solid #6366f1" : "1px solid rgba(0,0,0,0.12)",
+          background: allSelected ? "rgba(79,70,229,0.12)" : "transparent",
+          color: allSelected ? "#4f46e5" : "var(--text-secondary)",
         }}>전체</button>
 
         {availableCodes.map(code => {
@@ -574,19 +583,19 @@ export default function EditorDashboard() {
             : stat.total === 0 || stat.written === 0 ? "미작성"
               : stat.written === stat.total ? "전송완료"
                 : "작성중";
-          const statusColor = stat.allClosed ? "#f87171"
+          const statusColor = stat.allClosed ? "#dc2626"
             : stat.written === 0 ? "var(--text-secondary)"
-              : stat.written === stat.total ? "#34d399"
-                : "#fbbf24";
+              : stat.written === stat.total ? "#059669"
+                : "#d97706";
 
           return (
             <div key={code} style={{ display: "flex", alignItems: "center", gap: "0.25rem" }}>
               {/* 코드 선택 버튼 + 상태 */}
               <button onClick={() => toggleCode(code)} style={{
                 padding: "0.25rem 0.8rem", borderRadius: "999px", fontSize: "0.78rem", cursor: "pointer",
-                border: active ? "1px solid #6366f1" : "1px solid rgba(255,255,255,0.2)",
-                background: active ? "rgba(99,102,241,0.25)" : "transparent",
-                color: active ? "#a5b4fc" : "var(--text-secondary)",
+                border: active ? "1px solid #6366f1" : "1px solid rgba(0,0,0,0.12)",
+                background: active ? "rgba(79,70,229,0.12)" : "transparent",
+                color: active ? "#4f46e5" : "var(--text-secondary)",
                 display: "flex", alignItems: "center", gap: "0.4rem",
               }}>
                 <span style={{ fontWeight: 600 }}>{code}</span>
@@ -605,12 +614,12 @@ export default function EditorDashboard() {
                   style={{
                     padding: "0.15rem 0.5rem", borderRadius: "4px", fontSize: "0.7rem", cursor: "pointer",
                     border: stat.allClosed
-                      ? "1px solid rgba(251,191,36,0.5)"
-                      : "1px solid rgba(239,68,68,0.4)",
+                      ? "1px solid rgba(217,119,6,0.5)"
+                      : "1px solid rgba(220,38,38,0.3)",
                     background: stat.allClosed
-                      ? "rgba(251,191,36,0.12)"
-                      : "rgba(239,68,68,0.12)",
-                    color: stat.allClosed ? "#fbbf24" : "#f87171",
+                      ? "rgba(217,119,6,0.10)"
+                      : "rgba(220,38,38,0.08)",
+                    color: stat.allClosed ? "#d97706" : "#dc2626",
                     whiteSpace: "nowrap",
                   }}
                 >
@@ -628,47 +637,47 @@ export default function EditorDashboard() {
   const renderStatsBar = () => (
     <div>
       {/* 요약 바 */}
-      <div style={{ padding: "0.6rem 1rem", borderBottom: showStats ? "none" : "1px solid rgba(255,255,255,0.08)", display: "flex", alignItems: "center", gap: "1.5rem", flexWrap: "wrap", background: "rgba(255,255,255,0.02)", fontSize: "0.82rem" }}>
+      <div style={{ padding: "0.6rem 1rem", borderBottom: showStats ? "none" : "1px solid rgba(0,0,0,0.08)", display: "flex", alignItems: "center", gap: "1.5rem", flexWrap: "wrap", background: "rgba(0,0,0,0.02)", fontSize: "0.82rem" }}>
         {reasonStats.byCategory.length > 0 && (
           <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
             <button
               onClick={() => setShowStats(s => !s)}
-              style={{ padding: "0.2rem 0.7rem", fontSize: "0.78rem", borderRadius: "6px", border: "1px solid rgba(255,255,255,0.2)", background: "transparent", color: "var(--text-secondary)", cursor: "pointer" }}
+              style={{ padding: "0.2rem 0.7rem", fontSize: "0.78rem", borderRadius: "6px", border: "1px solid rgba(0,0,0,0.12)", background: "transparent", color: "var(--text-secondary)", cursor: "pointer" }}
             >
               {showStats ? "▲ 분류별 닫기" : "▼ 분류별 상세"}
             </button>
             {showStats && (
-              <div style={{ display: "flex", borderRadius: "5px", overflow: "hidden", border: "1px solid rgba(255,255,255,0.15)" }}>
+              <div style={{ display: "flex", borderRadius: "5px", overflow: "hidden", border: "1px solid rgba(0,0,0,0.12)" }}>
                 <button onClick={() => setStatsViewMode("overall")}
                   style={{ padding: "0.15rem 0.6rem", fontSize: "0.74rem", cursor: "pointer", border: "none",
-                    background: statsViewMode === "overall" ? "rgba(99,102,241,0.4)" : "transparent",
-                    color: statsViewMode === "overall" ? "#a5b4fc" : "var(--text-secondary)" }}>전체</button>
+                    background: statsViewMode === "overall" ? "rgba(79,70,229,0.15)" : "transparent",
+                    color: statsViewMode === "overall" ? "#4f46e5" : "var(--text-secondary)" }}>전체</button>
                 <button onClick={() => setStatsViewMode("byCode")}
                   style={{ padding: "0.15rem 0.6rem", fontSize: "0.74rem", cursor: "pointer", border: "none",
-                    background: statsViewMode === "byCode" ? "rgba(99,102,241,0.4)" : "transparent",
-                    color: statsViewMode === "byCode" ? "#a5b4fc" : "var(--text-secondary)" }}>코드별</button>
+                    background: statsViewMode === "byCode" ? "rgba(79,70,229,0.15)" : "transparent",
+                    color: statsViewMode === "byCode" ? "#4f46e5" : "var(--text-secondary)" }}>코드별</button>
               </div>
             )}
           </div>
         )}
         <span style={{ color: "var(--text-secondary)" }}>총 <b style={{ color: "var(--text-primary)" }}>{reasonStats.totalRecords}</b>건</span>
-        <span style={{ color: "#a5b4fc" }}>사업부 작성 <b>{reasonStats.editorTotal}</b>건</span>
-        <span style={{ color: "#34d399" }}>기조실 확정 <b>{reasonStats.adminTotal}</b>건</span>
-        <span style={{ color: "#f87171" }}>미작성 <b>{reasonStats.totalRecords - reasonStats.editorTotal}</b>건</span>
+        <span style={{ color: "#4f46e5" }}>사업부 작성 <b>{reasonStats.editorTotal}</b>건</span>
+        <span style={{ color: "#059669" }}>기조실 확정 <b>{reasonStats.adminTotal}</b>건</span>
+        <span style={{ color: "#dc2626" }}>미작성 <b>{reasonStats.totalRecords - reasonStats.editorTotal}</b>건</span>
       </div>
 
       {/* 분류별 상세 (펼쳐질 때만) */}
       {showStats && reasonStats.byCategory.length > 0 && (
-        <div style={{ padding: "0.75rem 1rem", borderBottom: "1px solid rgba(255,255,255,0.08)", background: "rgba(0,0,0,0.2)" }}>
+        <div style={{ padding: "0.75rem 1rem", borderBottom: "1px solid rgba(0,0,0,0.08)", background: "rgba(0,0,0,0.03)" }}>
           {statsViewMode === "overall" ? (
             /* 전체 뷰 */
             <table style={{ fontSize: "0.78rem", borderCollapse: "collapse", width: "auto" }}>
               <thead>
                 <tr>
-                  <th style={{ padding: "0.25rem 0.75rem", textAlign: "left", color: "var(--text-secondary)", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>분류</th>
-                  <th style={{ padding: "0.25rem 0.75rem", textAlign: "center", color: "#a5b4fc", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>사업부 작성</th>
-                  <th style={{ padding: "0.25rem 0.75rem", textAlign: "center", color: "#34d399", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>기조실 확정</th>
-                  <th style={{ padding: "0.25rem 0.75rem", textAlign: "center", color: "var(--text-secondary)", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>차이</th>
+                  <th style={{ padding: "0.25rem 0.75rem", textAlign: "left", color: "var(--text-secondary)", borderBottom: "1px solid rgba(0,0,0,0.08)" }}>분류</th>
+                  <th style={{ padding: "0.25rem 0.75rem", textAlign: "center", color: "#4f46e5", borderBottom: "1px solid rgba(0,0,0,0.08)" }}>사업부 작성</th>
+                  <th style={{ padding: "0.25rem 0.75rem", textAlign: "center", color: "#059669", borderBottom: "1px solid rgba(0,0,0,0.08)" }}>기조실 확정</th>
+                  <th style={{ padding: "0.25rem 0.75rem", textAlign: "center", color: "var(--text-secondary)", borderBottom: "1px solid rgba(0,0,0,0.08)" }}>차이</th>
                 </tr>
               </thead>
               <tbody>
@@ -684,13 +693,13 @@ export default function EditorDashboard() {
                         );
                         setDiffPopup({ category: stat.category, records: diffRecords });
                       } : undefined}
-                      style={{ cursor: hasDiff ? "pointer" : "default", background: hasDiff ? "rgba(251,191,36,0.05)" : "transparent" }}
+                      style={{ cursor: hasDiff ? "pointer" : "default", background: hasDiff ? "rgba(217,119,6,0.06)" : "transparent" }}
                       title={hasDiff ? "클릭하여 차이 내역 보기" : ""}
                     >
                       <td style={{ padding: "0.2rem 0.75rem", color: "var(--text-primary)" }}>{stat.category}</td>
-                      <td style={{ padding: "0.2rem 0.75rem", textAlign: "center", color: "#a5b4fc", fontWeight: "bold" }}>{stat.editorCount}</td>
-                      <td style={{ padding: "0.2rem 0.75rem", textAlign: "center", color: "#34d399", fontWeight: "bold" }}>{stat.adminCount}</td>
-                      <td style={{ padding: "0.2rem 0.75rem", textAlign: "center", color: hasDiff ? "#fbbf24" : "var(--text-secondary)", fontWeight: hasDiff ? "bold" : "normal" }}>
+                      <td style={{ padding: "0.2rem 0.75rem", textAlign: "center", color: "#4f46e5", fontWeight: "bold" }}>{stat.editorCount}</td>
+                      <td style={{ padding: "0.2rem 0.75rem", textAlign: "center", color: "#059669", fontWeight: "bold" }}>{stat.adminCount}</td>
+                      <td style={{ padding: "0.2rem 0.75rem", textAlign: "center", color: hasDiff ? "#d97706" : "var(--text-secondary)", fontWeight: hasDiff ? "bold" : "normal" }}>
                         {diff > 0 ? `+${diff}` : diff}
                         {hasDiff && <span style={{ marginLeft: "0.3rem", fontSize: "0.7rem" }}>🔍</span>}
                       </td>
@@ -704,16 +713,16 @@ export default function EditorDashboard() {
             <div style={{ display: "flex", gap: "1.5rem", flexWrap: "wrap", alignItems: "flex-start" }}>
               {reasonStats.byCode.map(({ code, categories }) => (
                 <div key={code}>
-                  <div style={{ fontSize: "0.76rem", fontWeight: 700, color: "var(--accent-primary, #a5b4fc)", marginBottom: "0.3rem", borderBottom: "1px solid rgba(255,255,255,0.15)", paddingBottom: "0.2rem" }}>
+                  <div style={{ fontSize: "0.76rem", fontWeight: 700, color: "var(--accent-primary, #4f46e5)", marginBottom: "0.3rem", borderBottom: "1px solid rgba(0,0,0,0.08)", paddingBottom: "0.2rem" }}>
                     {code}
                   </div>
                   <table style={{ fontSize: "0.75rem", borderCollapse: "collapse" }}>
                     <thead>
                       <tr>
-                        <th style={{ padding: "0.15rem 0.6rem", textAlign: "left", color: "var(--text-secondary)", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>분류</th>
-                        <th style={{ padding: "0.15rem 0.6rem", textAlign: "center", color: "#a5b4fc", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>사업부</th>
-                        <th style={{ padding: "0.15rem 0.6rem", textAlign: "center", color: "#34d399", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>기조실</th>
-                        <th style={{ padding: "0.15rem 0.6rem", textAlign: "center", color: "var(--text-secondary)", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>차이</th>
+                        <th style={{ padding: "0.15rem 0.6rem", textAlign: "left", color: "var(--text-secondary)", borderBottom: "1px solid rgba(0,0,0,0.08)" }}>분류</th>
+                        <th style={{ padding: "0.15rem 0.6rem", textAlign: "center", color: "#4f46e5", borderBottom: "1px solid rgba(0,0,0,0.08)" }}>사업부</th>
+                        <th style={{ padding: "0.15rem 0.6rem", textAlign: "center", color: "#059669", borderBottom: "1px solid rgba(0,0,0,0.08)" }}>기조실</th>
+                        <th style={{ padding: "0.15rem 0.6rem", textAlign: "center", color: "var(--text-secondary)", borderBottom: "1px solid rgba(0,0,0,0.08)" }}>차이</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -731,12 +740,12 @@ export default function EditorDashboard() {
                               );
                               setDiffPopup({ category: `${code} — ${stat.category}`, records: diffRecords });
                             } : undefined}
-                            style={{ cursor: hasDiff ? "pointer" : "default", background: hasDiff ? "rgba(251,191,36,0.06)" : "transparent" }}
+                            style={{ cursor: hasDiff ? "pointer" : "default", background: hasDiff ? "rgba(217,119,6,0.06)" : "transparent" }}
                           >
                             <td style={{ padding: "0.15rem 0.6rem", color: "var(--text-primary)" }}>{stat.category}</td>
-                            <td style={{ padding: "0.15rem 0.6rem", textAlign: "center", color: "#a5b4fc", fontWeight: "bold" }}>{stat.editorCount}</td>
-                            <td style={{ padding: "0.15rem 0.6rem", textAlign: "center", color: "#34d399", fontWeight: "bold" }}>{stat.adminCount}</td>
-                            <td style={{ padding: "0.15rem 0.6rem", textAlign: "center", color: hasDiff ? "#fbbf24" : "var(--text-secondary)", fontWeight: hasDiff ? "bold" : "normal" }}>
+                            <td style={{ padding: "0.15rem 0.6rem", textAlign: "center", color: "#4f46e5", fontWeight: "bold" }}>{stat.editorCount}</td>
+                            <td style={{ padding: "0.15rem 0.6rem", textAlign: "center", color: "#059669", fontWeight: "bold" }}>{stat.adminCount}</td>
+                            <td style={{ padding: "0.15rem 0.6rem", textAlign: "center", color: hasDiff ? "#d97706" : "var(--text-secondary)", fontWeight: hasDiff ? "bold" : "normal" }}>
                               {diff > 0 ? `+${diff}` : diff}
                               {hasDiff && <span style={{ marginLeft: "0.2rem", fontSize: "0.68rem" }}>🔍</span>}
                             </td>
@@ -760,36 +769,36 @@ export default function EditorDashboard() {
       <table className="data-table" style={{ borderCollapse: "collapse", fontSize: "0.80rem" }}>
         <thead>
           <tr>
-            <th rowSpan={2} style={{ background: "rgba(255,255,255,0.08)", borderRight: "1px solid rgba(255,255,255,0.1)" }}>수익코드</th>
-            <th rowSpan={2} style={{ background: "rgba(255,255,255,0.08)" }}>사업부</th>
-            <th rowSpan={2} style={{ background: "rgba(255,255,255,0.08)" }}>브랜드</th>
-            <th rowSpan={2} style={{ background: "rgba(255,255,255,0.08)" }}>캠퍼스</th>
-            <th rowSpan={2} style={{ background: "rgba(255,255,255,0.08)", borderRight: "1px solid rgba(255,255,255,0.1)" }}>작성자</th>
-            <th colSpan={4} style={{ background: "rgba(16, 185, 129, 0.15)", color: "#34d399", borderRight: "1px solid rgba(255,255,255,0.1)" }}>최종퇴원율</th>
-            <th rowSpan={2} style={{ background: "rgba(59, 130, 246, 0.15)", color: "#60a5fa", borderRight: "1px solid rgba(255,255,255,0.1)" }}>목표퇴원율</th>
-            <th colSpan={6} style={{ background: "rgba(255, 255, 255, 0.05)", borderRight: "1px solid rgba(255,255,255,0.1)" }}>ACA 기초데이터</th>
-            <th colSpan={3} style={{ background: "rgba(255, 255, 255, 0.1)", borderRight: "1px solid rgba(255,255,255,0.1)" }}>ACA 퇴원율</th>
-            <th colSpan={5} style={{ background: "rgba(245, 158, 11, 0.15)", color: "#fbbf24", borderRight: "1px solid rgba(255,255,255,0.1)" }}>경고 * 종강 * 이벤트 퇴원</th>
+            <th rowSpan={2} style={{ background: "rgba(0,0,0,0.04)", borderRight: "1px solid rgba(0,0,0,0.08)" }}>수익코드</th>
+            <th rowSpan={2} style={{ background: "rgba(0,0,0,0.04)" }}>사업부</th>
+            <th rowSpan={2} style={{ background: "rgba(0,0,0,0.04)" }}>브랜드</th>
+            <th rowSpan={2} style={{ background: "rgba(0,0,0,0.04)" }}>캠퍼스</th>
+            <th rowSpan={2} style={{ background: "rgba(0,0,0,0.04)", borderRight: "1px solid rgba(0,0,0,0.08)" }}>작성자</th>
+            <th colSpan={4} style={{ background: "rgba(5,150,105,0.12)", color: "#059669", borderRight: "1px solid rgba(0,0,0,0.08)" }}>최종퇴원율</th>
+            <th rowSpan={2} style={{ background: "rgba(37,99,235,0.10)", color: "#2563eb", borderRight: "1px solid rgba(0,0,0,0.08)" }}>목표퇴원율</th>
+            <th colSpan={6} style={{ background: "rgba(0,0,0,0.03)", borderRight: "1px solid rgba(0,0,0,0.08)" }}>ACA 기초데이터</th>
+            <th colSpan={3} style={{ background: "rgba(0,0,0,0.05)", borderRight: "1px solid rgba(0,0,0,0.08)" }}>ACA 퇴원율</th>
+            <th colSpan={5} style={{ background: "rgba(245, 158, 11, 0.15)", color: "#d97706", borderRight: "1px solid rgba(0,0,0,0.08)" }}>경고 * 종강 * 이벤트 퇴원</th>
           </tr>
           <tr>
-            <th style={{ background: "rgba(16, 185, 129, 0.08)", color: "var(--text-secondary)" }}>재원(15일)</th>
-            <th style={{ background: "rgba(16, 185, 129, 0.08)", color: "var(--text-secondary)" }}>최종퇴원</th>
-            <th style={{ background: "rgba(16, 185, 129, 0.08)", color: "var(--text-secondary)" }}>최종퇴원율(%)</th>
-            <th style={{ background: "rgba(16, 185, 129, 0.08)", color: "var(--text-secondary)", borderRight: "1px solid rgba(255,255,255,0.1)" }}>브랜드평균</th>
-            <th style={{ background: "rgba(255,255,255,0.03)", color: "var(--text-secondary)" }}>신규</th>
-            <th style={{ background: "rgba(255,255,255,0.03)", color: "var(--text-secondary)" }}>퇴원</th>
-            <th style={{ background: "rgba(255,255,255,0.03)", color: "var(--text-secondary)" }}>휴원</th>
-            <th style={{ background: "rgba(255,255,255,0.03)", color: "var(--text-secondary)" }}>재원(15일)</th>
-            <th style={{ background: "rgba(255,255,255,0.05)", color: "var(--text-secondary)" }}>재원수(말일)</th>
-            <th style={{ background: "rgba(255,255,255,0.05)", color: "var(--text-secondary)", borderRight: "1px solid rgba(255,255,255,0.1)" }}>재원(15-말일)</th>
-            <th style={{ background: "rgba(255,255,255,0.07)", color: "var(--text-secondary)" }}>퇴원</th>
-            <th style={{ background: "rgba(255,255,255,0.07)", color: "var(--text-secondary)" }}>퇴원율(%)</th>
-            <th style={{ background: "rgba(255,255,255,0.07)", color: "var(--text-secondary)", borderRight: "1px solid rgba(255,255,255,0.1)" }}>브랜드평균</th>
+            <th style={{ background: "rgba(5,150,105,0.06)", color: "var(--text-secondary)" }}>재원(15일)</th>
+            <th style={{ background: "rgba(5,150,105,0.06)", color: "var(--text-secondary)" }}>최종퇴원</th>
+            <th style={{ background: "rgba(5,150,105,0.06)", color: "var(--text-secondary)" }}>최종퇴원율(%)</th>
+            <th style={{ background: "rgba(5,150,105,0.06)", color: "var(--text-secondary)", borderRight: "1px solid rgba(0,0,0,0.08)" }}>브랜드평균</th>
+            <th style={{ background: "rgba(0,0,0,0.02)", color: "var(--text-secondary)" }}>신규</th>
+            <th style={{ background: "rgba(0,0,0,0.02)", color: "var(--text-secondary)" }}>퇴원</th>
+            <th style={{ background: "rgba(0,0,0,0.02)", color: "var(--text-secondary)" }}>휴원</th>
+            <th style={{ background: "rgba(0,0,0,0.02)", color: "var(--text-secondary)" }}>재원(15일)</th>
+            <th style={{ background: "rgba(0,0,0,0.03)", color: "var(--text-secondary)" }}>재원수(말일)</th>
+            <th style={{ background: "rgba(0,0,0,0.03)", color: "var(--text-secondary)", borderRight: "1px solid rgba(0,0,0,0.08)" }}>재원(15-말일)</th>
+            <th style={{ background: "rgba(0,0,0,0.04)", color: "var(--text-secondary)" }}>퇴원</th>
+            <th style={{ background: "rgba(0,0,0,0.04)", color: "var(--text-secondary)" }}>퇴원율(%)</th>
+            <th style={{ background: "rgba(0,0,0,0.04)", color: "var(--text-secondary)", borderRight: "1px solid rgba(0,0,0,0.08)" }}>브랜드평균</th>
             <th style={{ background: "rgba(245, 158, 11, 0.08)", color: "var(--text-secondary)" }}>8.경고</th>
             <th style={{ background: "rgba(245, 158, 11, 0.08)", color: "var(--text-secondary)" }}>9.종강</th>
             <th style={{ background: "rgba(245, 158, 11, 0.08)", color: "var(--text-secondary)" }}>10.이벤트</th>
-            <th style={{ background: "rgba(245, 158, 11, 0.12)", color: "var(--text-secondary)" }}>계</th>
-            <th style={{ background: "rgba(245, 158, 11, 0.08)", color: "var(--text-secondary)", borderRight: "1px solid rgba(255,255,255,0.1)" }}>제외율(%)</th>
+            <th style={{ background: "rgba(245, 158, 11, 0.10)", color: "var(--text-secondary)" }}>계</th>
+            <th style={{ background: "rgba(245, 158, 11, 0.08)", color: "var(--text-secondary)", borderRight: "1px solid rgba(0,0,0,0.08)" }}>제외율(%)</th>
           </tr>
         </thead>
         <tbody>
@@ -799,26 +808,26 @@ export default function EditorDashboard() {
               <td style={{ color: "var(--text-secondary)" }}>{record.department}</td>
               <td style={{ color: "var(--text-secondary)" }}>{record.brand}</td>
               <td style={{ color: "var(--text-secondary)" }}>{record.campus}</td>
-              <td style={{ color: "var(--text-secondary)", borderRight: "1px solid rgba(255,255,255,0.1)" }}>{record.manager}</td>
+              <td style={{ color: "var(--text-secondary)", borderRight: "1px solid rgba(0,0,0,0.08)" }}>{record.manager}</td>
               <td style={{ color: "var(--text-primary)" }}>{record.finalJaewon}</td>
-              <td style={{ color: "#34d399", fontWeight: "bold" }}>{record.finalDropout}</td>
+              <td style={{ color: "#059669", fontWeight: "bold" }}>{record.finalDropout}</td>
               <td style={{ color: "var(--danger)", fontWeight: "bold" }}>{record.finalRate}</td>
-              <td style={{ color: "var(--text-secondary)", borderRight: "1px solid rgba(255,255,255,0.1)" }}>{record.finalBrandAvg}</td>
-              <td style={{ color: "#60a5fa", fontWeight: "bold", borderRight: "1px solid rgba(255,255,255,0.1)" }}>{record.targetRate}</td>
+              <td style={{ color: "var(--text-secondary)", borderRight: "1px solid rgba(0,0,0,0.08)" }}>{record.finalBrandAvg}</td>
+              <td style={{ color: "#2563eb", fontWeight: "bold", borderRight: "1px solid rgba(0,0,0,0.08)" }}>{record.targetRate}</td>
               <td style={{ color: "var(--text-secondary)" }}>{record.acaNew}</td>
               <td style={{ color: "var(--text-secondary)" }}>{record.acaDropout}</td>
               <td style={{ color: "var(--text-secondary)" }}>{record.acaHold}</td>
               <td style={{ color: "var(--text-secondary)" }}>{record.acaJaewon}</td>
-              <td style={{ background: "rgba(255,255,255,0.02)", color: "var(--text-secondary)" }}>{record.acaJaewonEnd}</td>
-              <td style={{ background: "rgba(255,255,255,0.02)", color: "var(--text-secondary)", borderRight: "1px solid rgba(255,255,255,0.1)" }}>{record.acaJaewonDiff}</td>
+              <td style={{ background: "rgba(0,0,0,0.02)", color: "var(--text-secondary)" }}>{record.acaJaewonEnd}</td>
+              <td style={{ background: "rgba(0,0,0,0.02)", color: "var(--text-secondary)", borderRight: "1px solid rgba(0,0,0,0.08)" }}>{record.acaJaewonDiff}</td>
               <td style={{ color: "var(--text-secondary)" }}>{record.acaRealDropout}</td>
               <td style={{ color: "var(--text-secondary)" }}>{record.acaRealRate}</td>
-              <td style={{ color: "var(--text-secondary)", borderRight: "1px solid rgba(255,255,255,0.1)" }}>{record.acaBrandAvg}</td>
+              <td style={{ color: "var(--text-secondary)", borderRight: "1px solid rgba(0,0,0,0.08)" }}>{record.acaBrandAvg}</td>
               <td style={{ color: "var(--text-secondary)" }}>{record.exWarn}</td>
               <td style={{ color: "var(--text-secondary)" }}>{record.exEnd}</td>
               <td style={{ color: "var(--text-secondary)" }}>{record.exEvent}</td>
-              <td style={{ color: "#fbbf24", fontWeight: "bold" }}>{record.exTotal}</td>
-              <td style={{ color: "var(--text-secondary)", borderRight: "1px solid rgba(255,255,255,0.1)" }}>{record.exRate}</td>
+              <td style={{ color: "#d97706", fontWeight: "bold" }}>{record.exTotal}</td>
+              <td style={{ color: "var(--text-secondary)", borderRight: "1px solid rgba(0,0,0,0.08)" }}>{record.exRate}</td>
             </tr>
           ))}
         </tbody>
@@ -833,10 +842,10 @@ export default function EditorDashboard() {
       {/* 이전달 조회 중 배너 */}
       {isViewingAccumulated && (
         <div style={{
-          padding: "0.6rem 1rem", background: "rgba(251,191,36,0.1)", borderBottom: "2px solid rgba(251,191,36,0.4)",
+          padding: "0.6rem 1rem", background: "rgba(217,119,6,0.06)", borderBottom: "2px solid rgba(217,119,6,0.30)",
           display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.84rem",
         }}>
-          <span style={{ color: "#fbbf24", fontWeight: 700 }}>📁 이전 데이터 조회 중 ({selectedMonth})</span>
+          <span style={{ color: "#d97706", fontWeight: 700 }}>📁 이전 데이터 조회 중 ({selectedMonth})</span>
           <span style={{ color: "var(--text-secondary)" }}>— 누적 시트 데이터입니다. 수정 불가 (읽기 전용)</span>
         </div>
       )}
@@ -849,8 +858,8 @@ export default function EditorDashboard() {
       <table className="data-table" style={{ borderCollapse: "collapse", fontSize: "0.80rem" }}>
         <thead>
           <tr>
-            <th rowSpan={2} style={{ background: "rgba(255,255,255,0.04)", whiteSpace: "nowrap" }}>#</th>
-            <th colSpan={showAdminCols ? 3 : 1} style={{ background: "rgba(60,60,60,0.6)", borderRight: "1px solid rgba(255,255,255,0.1)" }}>
+            <th rowSpan={2} style={{ background: "rgba(0,0,0,0.03)", whiteSpace: "nowrap" }}>#</th>
+            <th colSpan={showAdminCols ? 3 : 1} style={{ background: "rgba(5,150,105,0.12)", borderRight: "1px solid rgba(0,0,0,0.08)", color: "#059669" }}>
               <span
                 onClick={() => setShowAdminCols(v => !v)}
                 style={{ cursor: "pointer", userSelect: "none", display: "inline-flex", alignItems: "center", gap: "0.3rem" }}
@@ -859,25 +868,25 @@ export default function EditorDashboard() {
                 {showAdminCols ? "▼" : "▶"} 기조실 확정
               </span>
             </th>
-            <th colSpan={4} style={{ background: "rgba(99,102,241,0.2)", borderRight: "1px solid rgba(255,255,255,0.1)", color: "#a5b4fc" }}>사업부 작성</th>
-            <th colSpan={11} style={{ background: "rgba(255,255,255,0.05)" }}>퇴원생 정보</th>
+            <th colSpan={4} style={{ background: "rgba(79,70,229,0.10)", borderRight: "1px solid rgba(0,0,0,0.08)", color: "#4f46e5" }}>사업부 작성</th>
+            <th colSpan={11} style={{ background: "rgba(0,0,0,0.03)" }}>퇴원생 정보</th>
           </tr>
-          <tr style={{ background: "rgba(255,255,255,0.02)", color: "var(--text-secondary)", fontSize: "0.75rem" }}>
+          <tr style={{ background: "rgba(0,0,0,0.02)", color: "var(--text-secondary)", fontSize: "0.75rem" }}>
             {/* 기조실 확정 3종 (접기/펼치기) */}
             {showAdminCols ? (
               <>
-                <th>{headers.zAdminReason1 || "사유(기조실)"}</th>
-                <th>{headers.aaAdminReason2 || "종류(기조실)"}</th>
-                <th style={{ borderRight: "1px solid rgba(255,255,255,0.1)" }}>{headers.abAdminDetail || "상세(기조실)"}</th>
+                <th style={{ color: "#059669" }}>{headers.zAdminReason1 || "사유(기조실)"}</th>
+                <th style={{ color: "#059669" }}>{headers.aaAdminReason2 || "종류(기조실)"}</th>
+                <th style={{ borderRight: "1px solid rgba(0,0,0,0.08)", color: "#059669" }}>{headers.abAdminDetail || "상세(기조실)"}</th>
               </>
             ) : (
-              <th style={{ borderRight: "1px solid rgba(255,255,255,0.1)", fontSize: "0.7rem", opacity: 0.5 }}>—</th>
+              <th style={{ borderRight: "1px solid rgba(0,0,0,0.08)", fontSize: "0.7rem", opacity: 0.5 }}>—</th>
             )}
             {/* 사업부 작성 4종 */}
-            <th style={{ color: "#a5b4fc" }}>{headers.vReason1 || "퇴원사유(분류1)"}</th>
-            <th style={{ color: "#a5b4fc" }}>{headers.wReason2 || "퇴원종류(분류2)"}</th>
-            <th style={{ color: "#a5b4fc" }}>{headers.xFileLink || "증빙여부"}</th>
-            <th style={{ borderRight: "1px solid rgba(255,255,255,0.1)", color: "#a5b4fc" }}>{headers.yDetail || "상세내역"}</th>
+            <th style={{ color: "#4f46e5" }}>{headers.vReason1 || "퇴원사유(분류1)"}</th>
+            <th style={{ color: "#4f46e5" }}>{headers.wReason2 || "퇴원종류(분류2)"}</th>
+            <th style={{ color: "#4f46e5" }}>{headers.xFileLink || "증빙여부"}</th>
+            <th style={{ borderRight: "1px solid rgba(0,0,0,0.08)", color: "#4f46e5" }}>{headers.yDetail || "상세내역"}</th>
             {/* 퇴원생 정보 11종 — 클릭 시 정렬 */}
             {([
               ["studentName", "학생명"],
@@ -907,7 +916,7 @@ export default function EditorDashboard() {
 
             return (
               <tr key={r.id} id={`input-row-${r.id}`}
-                style={isHighlighted ? { background: "rgba(251,191,36,0.18)", transition: "background 0.5s" } : undefined}
+                style={isHighlighted ? { background: "rgba(217,119,6,0.12)", transition: "background 0.5s" } : undefined}
               >
                 {/* # */}
                 <td style={{ color: "var(--text-secondary)", textAlign: "center" }}>{idx + 1}</td>
@@ -915,18 +924,18 @@ export default function EditorDashboard() {
                 {/* 기조실 확정 3종 (접기/펼치기) */}
                 {showAdminCols ? (
                   <>
-                    <td style={{ opacity: 0.7 }}>{r.zAdminReason1 || "-"}</td>
-                    <td style={{ opacity: 0.7 }}>{r.aaAdminReason2 || "-"}</td>
-                    <td style={{ opacity: 0.7, borderRight: "1px solid rgba(255,255,255,0.1)" }}>
+                    <td style={{ color: "var(--text-primary)" }}>{r.zAdminReason1 || "-"}</td>
+                    <td style={{ color: "var(--text-primary)" }}>{r.aaAdminReason2 || "-"}</td>
+                    <td style={{ color: "var(--text-primary)", borderRight: "1px solid rgba(0,0,0,0.08)" }}>
                       {r.abAdminDetail || "-"}
                       {isClosed && (
-                        <span style={{ marginLeft: "0.4rem", fontSize: "0.7rem", color: "#f87171" }}>🔒마감</span>
+                        <span style={{ marginLeft: "0.4rem", fontSize: "0.7rem", color: "#dc2626" }}>🔒마감</span>
                       )}
                     </td>
                   </>
                 ) : (
-                  <td style={{ borderRight: "1px solid rgba(255,255,255,0.1)", textAlign: "center", opacity: 0.4 }}>
-                    {isClosed && <span style={{ fontSize: "0.7rem", color: "#f87171" }}>🔒</span>}
+                  <td style={{ borderRight: "1px solid rgba(0,0,0,0.08)", textAlign: "center", opacity: 0.4 }}>
+                    {isClosed && <span style={{ fontSize: "0.7rem", color: "#dc2626" }}>🔒</span>}
                   </td>
                 )}
 
@@ -953,7 +962,7 @@ export default function EditorDashboard() {
                 </td>
                 <td>
                   {r.xFileLink ? (
-                    <a href={r.xFileLink} target="_blank" rel="noreferrer" style={{ color: "#34d399" }}>파일 보기</a>
+                    <a href={r.xFileLink} target="_blank" rel="noreferrer" style={{ color: "#059669" }}>파일 보기</a>
                   ) : uploadingId === r.id ? (
                     <span style={{ color: "var(--text-secondary)" }}>업로드 중...</span>
                   ) : (
@@ -964,14 +973,14 @@ export default function EditorDashboard() {
                     </label>
                   )}
                 </td>
-                <td style={{ borderRight: "1px solid rgba(255,255,255,0.1)" }}>
+                <td style={{ borderRight: "1px solid rgba(0,0,0,0.08)" }}>
                   <input type="text" className="input-field" placeholder="상세 내용 기입"
                     value={r.yDetail} onChange={e => handleInputChange(r.id, "yDetail", e.target.value)}
                     style={{ minWidth: "160px" }} disabled={isClosed} />
                   {isClosed && !isViewingAccumulated && (
                     <div style={{ marginTop: "0.3rem" }}>
                       <button onClick={() => handleRequestEdit(r)} className="print-hide"
-                        style={{ fontSize: "0.7rem", padding: "0.2rem 0.5rem", background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: "4px", color: "white", cursor: "pointer" }}>
+                        style={{ fontSize: "0.7rem", padding: "0.2rem 0.5rem", background: "rgba(220,38,38,0.08)", border: "1px solid rgba(220,38,38,0.3)", borderRadius: "4px", color: "#dc2626", cursor: "pointer" }}>
                         권한 요청
                       </button>
                     </div>
@@ -979,7 +988,7 @@ export default function EditorDashboard() {
                 </td>
 
                 {/* 퇴원생 정보 11종 */}
-                <td style={{ color: "#60a5fa", fontWeight: "bold" }}>{r.studentName}</td>
+                <td style={{ color: "#2563eb", fontWeight: "bold" }}>{r.studentName}</td>
                 <td>{r.school}</td>
                 <td>{r.grade}</td>
                 <td style={{ color: "var(--text-secondary)" }}>{r.lastAttend || "-"}</td>
@@ -1002,10 +1011,10 @@ export default function EditorDashboard() {
     <>
       <div className="dashboard-header-text" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
         <div>
-          <h2>퇴원관리 대시보드</h2>
-          <p>월별 퇴원보고서 & 퇴원사유작성 및 확인.</p>
+          <h2>퇴원생 관리</h2>
+          <p>퇴원율 보고서 & 퇴원사유 상세내역.</p>
         </div>
-
+        
         {/* 툴바 및 필터 영역 (인쇄 시 숨김) */}
         <div className="print-hide" style={{ display: "flex", gap: "1rem", alignItems: "center", flexWrap: "wrap" }}>
 
@@ -1023,18 +1032,18 @@ export default function EditorDashboard() {
           {/* 보고서 탭 — 년월/분기 필터 */}
           {activeTab === "report" && (
             <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
-              <div style={{ display: "flex", borderRadius: "6px", overflow: "hidden", border: "1px solid rgba(255,255,255,0.15)" }}>
+              <div style={{ display: "flex", borderRadius: "6px", overflow: "hidden", border: "1px solid rgba(0,0,0,0.12)" }}>
                 <button
                   onClick={() => setReportViewMode("month")}
                   style={{ padding: "0.3rem 0.75rem", fontSize: "0.82rem", cursor: "pointer", border: "none",
-                    background: reportViewMode === "month" ? "rgba(99,102,241,0.4)" : "transparent",
-                    color: reportViewMode === "month" ? "#a5b4fc" : "var(--text-secondary)" }}
+                    background: reportViewMode === "month" ? "rgba(79,70,229,0.15)" : "transparent",
+                    color: reportViewMode === "month" ? "#4f46e5" : "var(--text-secondary)" }}
                 >월별</button>
                 <button
                   onClick={() => setReportViewMode("quarter")}
                   style={{ padding: "0.3rem 0.75rem", fontSize: "0.82rem", cursor: "pointer", border: "none",
-                    background: reportViewMode === "quarter" ? "rgba(99,102,241,0.4)" : "transparent",
-                    color: reportViewMode === "quarter" ? "#a5b4fc" : "var(--text-secondary)" }}
+                    background: reportViewMode === "quarter" ? "rgba(79,70,229,0.15)" : "transparent",
+                    color: reportViewMode === "quarter" ? "#4f46e5" : "var(--text-secondary)" }}
                 >분기별</button>
               </div>
               {reportViewMode === "month" ? (
@@ -1051,8 +1060,8 @@ export default function EditorDashboard() {
             </div>
           )}
 
-          {/* 내보내기 그룹 — 관리자/중간관리자만 표시 */}
-          {(userInfo?.role === "admin" || userInfo?.role === "mid_admin") && (
+          {/* 내보내기 그룹 — 관리자/중간관리자/보고서권한자만 표시 */}
+          {(userInfo?.role === "admin" || userInfo?.role === "mid_admin" || (userInfo?.reportCodes?.length > 0)) && (
             <div style={{ display: "flex", gap: "0.5rem" }}>
               <button className="btn-secondary" onClick={handleExportCSV}>
                 엑셀다운(cvs)
@@ -1066,7 +1075,7 @@ export default function EditorDashboard() {
           {activeTab === "input" && !isViewingAccumulated && (
             <div style={{ display: "flex", gap: "0.5rem", marginLeft: "auto" }}>
               <button className="btn-secondary" onClick={handleTempSave}
-                style={{ fontSize: "0.9rem", border: "1px solid rgba(251,191,36,0.5)", color: "#fbbf24" }}>
+                style={{ fontSize: "0.9rem", border: "1px solid rgba(217,119,6,0.5)", color: "#d97706" }}>
                 임시저장
               </button>
               <button className="btn-primary" onClick={handleFinalSubmit} style={{ fontSize: "1rem" }}>
@@ -1078,7 +1087,7 @@ export default function EditorDashboard() {
       </div>
 
       <div className="tabs-container">
-        {(userInfo?.role === "admin" || userInfo?.role === "mid_admin") && (
+        {(userInfo?.role === "admin" || userInfo?.role === "mid_admin" || (userInfo?.reportCodes?.length > 0)) && (
           <button
             className={`tab-button ${activeTab === "report" ? "active" : ""}`}
             onClick={() => setActiveTab("report")}
@@ -1112,8 +1121,8 @@ export default function EditorDashboard() {
             top: `calc(50% + ${popupPos.y}px)`,
             left: `calc(50% + ${popupPos.x}px)`,
             transform: "translate(-50%, -50%)",
-            background: "var(--bg-secondary, #1e1e2e)", borderRadius: "12px",
-            border: "1px solid rgba(255,255,255,0.2)", padding: "0",
+            background: "var(--bg-secondary, #f2ece2)", borderRadius: "12px",
+            border: "1px solid rgba(0,0,0,0.12)", padding: "0",
             maxWidth: "90vw", maxHeight: "80vh",
             minWidth: "640px", display: "flex", flexDirection: "column",
             boxShadow: "0 8px 40px rgba(0,0,0,0.6)",
@@ -1132,11 +1141,11 @@ export default function EditorDashboard() {
               window.addEventListener("mouseup", onUp);
             }}
             style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.9rem 1.2rem 0.7rem",
-              borderBottom: "1px solid rgba(255,255,255,0.1)", cursor: "grab", userSelect: "none",
-              borderRadius: "12px 12px 0 0", background: "rgba(255,255,255,0.03)" }}
+              borderBottom: "1px solid rgba(0,0,0,0.08)", cursor: "grab", userSelect: "none",
+              borderRadius: "12px 12px 0 0", background: "rgba(0,0,0,0.02)" }}
           >
             <h3 style={{ margin: 0, fontSize: "0.95rem" }}>
-              🔍 <span style={{ color: "#fbbf24" }}>{diffPopup.category}</span> — 사업부 vs 기조실 차이 내역
+              🔍 <span style={{ color: "#d97706" }}>{diffPopup.category}</span> — 사업부 vs 기조실 차이 내역
             </h3>
             <button
               onClick={() => { setDiffPopup(null); setPopupPos({ x: 0, y: 0 }); }}
@@ -1151,22 +1160,22 @@ export default function EditorDashboard() {
             ) : (
               <table style={{ fontSize: "0.8rem", borderCollapse: "collapse", width: "100%" }}>
                 <thead>
-                  <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.15)" }}>
+                  <tr style={{ borderBottom: "1px solid rgba(0,0,0,0.08)" }}>
                     <th style={{ padding: "0.4rem 0.75rem", textAlign: "left", color: "var(--text-secondary)" }}>#</th>
                     <th style={{ padding: "0.4rem 0.75rem", textAlign: "left", color: "var(--text-secondary)" }}>학생명</th>
                     <th style={{ padding: "0.4rem 0.75rem", textAlign: "left", color: "var(--text-secondary)" }}>반명</th>
                     <th style={{ padding: "0.4rem 0.75rem", textAlign: "left", color: "var(--text-secondary)" }}>수익코드</th>
-                    <th style={{ padding: "0.4rem 0.75rem", textAlign: "left", color: "#a5b4fc" }}>사업부 작성</th>
-                    <th style={{ padding: "0.4rem 0.75rem", textAlign: "left", color: "#34d399" }}>기조실 확정</th>
+                    <th style={{ padding: "0.4rem 0.75rem", textAlign: "left", color: "#4f46e5" }}>사업부 작성</th>
+                    <th style={{ padding: "0.4rem 0.75rem", textAlign: "left", color: "#059669" }}>기조실 확정</th>
                   </tr>
                 </thead>
                 <tbody>
                   {diffPopup.records.map((r, i) => (
-                    <tr key={r.id} style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                    <tr key={r.id} style={{ borderBottom: "1px solid rgba(0,0,0,0.06)" }}>
                       <td style={{ padding: "0.35rem 0.75rem", color: "var(--text-secondary)" }}>{i + 1}</td>
                       <td style={{ padding: "0.35rem 0.75rem" }}>
                         <span
-                          style={{ color: "#60a5fa", fontWeight: 600, cursor: "pointer", textDecoration: "underline" }}
+                          style={{ color: "#2563eb", fontWeight: 600, cursor: "pointer", textDecoration: "underline" }}
                           title="클릭하면 해당 행으로 이동 (팝업 유지)"
                           onClick={() => {
                             setHighlightedRowId(r.id);
@@ -1176,11 +1185,11 @@ export default function EditorDashboard() {
                         >{r.studentName}</span>
                       </td>
                       <td style={{ padding: "0.35rem 0.75rem" }}>{r.className}</td>
-                      <td style={{ padding: "0.35rem 0.75rem", color: "var(--accent-primary, #a5b4fc)", fontWeight: 700 }}>{r.code}</td>
-                      <td style={{ padding: "0.35rem 0.75rem", color: r.vReason1?.trim() === diffPopup.category ? "#a5b4fc" : "#f87171" }}>
+                      <td style={{ padding: "0.35rem 0.75rem", color: "var(--accent-primary, #4f46e5)", fontWeight: 700 }}>{r.code}</td>
+                      <td style={{ padding: "0.35rem 0.75rem", color: r.vReason1?.trim() === diffPopup.category ? "#4f46e5" : "#dc2626" }}>
                         {r.vReason1 || <span style={{ opacity: 0.4 }}>미작성</span>}
                       </td>
-                      <td style={{ padding: "0.35rem 0.75rem", color: r.zAdminReason1?.trim() === diffPopup.category ? "#34d399" : "#f87171" }}>
+                      <td style={{ padding: "0.35rem 0.75rem", color: r.zAdminReason1?.trim() === diffPopup.category ? "#059669" : "#dc2626" }}>
                         {r.zAdminReason1 || <span style={{ opacity: 0.4 }}>미확정</span>}
                       </td>
                     </tr>

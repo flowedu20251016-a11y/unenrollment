@@ -49,15 +49,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* 상단 네비게이션 */}
       <header className="dashboard-header glass-container">
         <div className="header-logo">
-          <Link href="/">퇴원 <span>관리 시스템</span></Link>
+          <Link href="/"><span style={{ color: "#e53e3e", marginRight: "0.3rem" }}>♥</span>Flowedu<span></span></Link>
         </div>
         <nav className="header-nav" style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
           <button
             onClick={() => { setShowModal(true); setMsg(null); }}
             style={{
-              background: "transparent", border: "1px solid rgba(255,255,255,0.2)",
+              background: "#fff", border: "1px solid rgba(0,0,0,0.1)",
               color: "var(--text-secondary)", padding: "0.3rem 0.8rem",
               borderRadius: "6px", cursor: "pointer", fontSize: "0.85rem",
+              boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
             }}
           >
             비밀번호 변경
@@ -72,12 +73,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* 비밀번호 변경 모달 */}
       {showModal && (
         <div style={{
-          position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)",
+          position: "fixed", inset: 0, background: "rgba(0,0,0,0.3)",
           display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999,
         }}>
           <div style={{
-            background: "var(--bg-secondary, #1a1d2e)", border: "1px solid rgba(255,255,255,0.12)",
-            borderRadius: "12px", padding: "2rem", width: "320px", display: "flex", flexDirection: "column", gap: "1rem",
+            background: "#faf8f4", border: "1px solid rgba(0,0,0,0.1)",
+            borderRadius: "14px", padding: "2rem", width: "320px", display: "flex", flexDirection: "column", gap: "1rem",
+            boxShadow: "0 8px 32px rgba(0,0,0,0.12)",
           }}>
             <h3 style={{ margin: 0, color: "var(--text-primary)", fontSize: "1.1rem" }}>비밀번호 변경</h3>
 
@@ -91,7 +93,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 <input
                   type="password" value={val} onChange={e => set(e.target.value)}
                   style={{
-                    background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.15)",
+                    background: "#fff", border: "1px solid rgba(0,0,0,0.12)",
                     borderRadius: "6px", padding: "0.5rem 0.75rem", color: "var(--text-primary)",
                     fontSize: "0.9rem", outline: "none",
                   }}
@@ -105,7 +107,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
             <div style={{ display: "flex", gap: "0.5rem", justifyContent: "flex-end" }}>
               <button onClick={() => setShowModal(false)}
-                style={{ padding: "0.4rem 1rem", borderRadius: "6px", border: "1px solid rgba(255,255,255,0.2)", background: "transparent", color: "var(--text-secondary)", cursor: "pointer" }}>
+                style={{ padding: "0.4rem 1rem", borderRadius: "6px", border: "1px solid rgba(0,0,0,0.12)", background: "#fff", color: "var(--text-secondary)", cursor: "pointer" }}>
                 취소
               </button>
               <button onClick={handleChange} disabled={loading}
