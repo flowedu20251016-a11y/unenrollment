@@ -55,15 +55,22 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <button
             onClick={() => { setShowModal(true); setMsg(null); }}
             style={{
-              background: "#fff", border: "1px solid rgba(0,0,0,0.1)",
-              color: "var(--text-secondary)", padding: "0.3rem 0.8rem",
-              borderRadius: "6px", cursor: "pointer", fontSize: "0.85rem",
-              boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
+              display: "inline-flex", alignItems: "center", justifyContent: "center",
+              height: "36px", padding: "0 0.9rem", borderRadius: "8px",
+              background: "#000", border: "none",
+              color: "#fff", fontSize: "0.82rem", fontWeight: 700,
+              fontFamily: '"DM Sans", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif',
+              letterSpacing: "-0.03em", cursor: "pointer",
+              transition: "opacity 0.15s", whiteSpace: "nowrap",
             }}
-          >
-            비밀번호 변경
-          </button>
-          <Link href="/login" className="logout-btn">로그아웃</Link>
+          >비밀번호 변경</button>
+          <Link href="/login" style={{
+            display: "inline-flex", alignItems: "center", justifyContent: "center",
+            width: "36px", height: "36px", borderRadius: "8px",
+            background: "#000", border: "none",
+            color: "#fff", fontSize: "1.1rem", textDecoration: "none",
+            cursor: "pointer", transition: "opacity 0.15s",
+          }} title="로그아웃">⏻</Link>
         </nav>
       </header>
 

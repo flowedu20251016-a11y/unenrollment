@@ -18,7 +18,11 @@
       "Bash(cmd /c \"rmdir /S /Q \\\\\"C:\\\\Users\\\\플로우교육\\(주\\)\\\\Desktop\\\\보조작업용\\\\dropout-analysis\\\\.next\\\\\" 2>&1 && echo done\")",
       "Bash(cmd /c \"taskkill /IM node.exe /F /T 2>&1\")",
       "Bash(npx tsc:*)",
-      "Bash(ls -la /c/Users/플로우교육\\\\\\(주\\\\\\)/Desktop/퇴원율/dropout-analysis/)"
+      "Bash(ls -la /c/Users/플로우교육\\\\\\(주\\\\\\)/Desktop/퇴원율/dropout-analysis/)",
+      "Skill(claude-api)",
+      "Bash(npm install:*)",
+      "Bash(type \"C:\\\\Users\\\\플로우교육\\(주\\)\\\\Desktop\\\\퇴원율\\\\dropout-analysis\\\\.next\\\\dev\\\\logs\\\\next-development.log\")",
+      "Bash(cat \"C:/Users/플로우교육\\(주\\)/Desktop/퇴원율/dropout-analysis/.next/dev/logs/next-development.log\")"
     ]
   }
 }

@@ -100,10 +100,12 @@
 /* Table Styles */
 .data-table-container {
   overflow-x: auto;
+  overflow-y: auto;
   border-radius: var(--radius-md);
   border: 1px solid rgba(0, 0, 0, 0.08);
   background: #fff;
-  max-height: 70vh;
+  /* 헤더(57px) + 메인패딩(20px) + 타이틀영역(70px) + 탭(45px) + 여백 = 약 220px */
+  height: calc(100vh - 220px);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
 }
 
@@ -131,6 +133,16 @@
   top: 0;
   z-index: 20;
   letter-spacing: 0.01em;
+}
+
+/* 2행 헤더의 두 번째 행은 첫 번째 행 높이(약 36px)만큼 아래에 고정 */
+.data-table thead tr:nth-child(2) th {
+  top: 36px;
+}
+
+/* 스크롤 시 내용이 비치지 않도록 thead th 배경을 항상 불투명하게 */
+.data-table thead th {
+  background-color: #f0ebe0 !important;
 }
 
 .data-table tbody tr:hover td {

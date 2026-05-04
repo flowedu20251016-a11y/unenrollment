@@ -6,7 +6,7 @@ import ChatbotOverlay from "@/components/ChatbotOverlay";
 
 // --- 기존 보고서 뷰 용 스키마 ---
 interface ReportRecordType {
-  id: string; rowIndex: number; code: string; department: string; brand: string; campus: string; manager: string;
+  id: string; rowIndex: number; month: string; code: string; department: string; brand: string; campus: string; manager: string;
   finalJaewon: string; finalDropout: string; finalRate: string; finalBrandAvg: string; targetRate: string;
   acaNew: string; acaDropout: string; acaHold: string; acaJaewon: string; acaJaewonEnd: string; acaJaewonDiff: string;
   acaRealDropout: string; acaRealRate: string; acaBrandAvg: string;
@@ -96,13 +96,15 @@ export default function EditorDashboard() {
     [inputRecords]
   );
 
-  // 전체 월 목록 (현재 시트 + 누적 시트, 중복 제거)
+  // 전체 월 목록 (현재/누적 최종 시트 + 보고서 시트, 중복 제거)
   const monthOptions = useMemo(
     () => Array.from(new Set([
       ...inputRecords.map(r => r.colA),
       ...accInputRecords.map(r => r.colA),
+      ...reportRecords.map(r => r.month),
+      ...accReportRecords.map(r => r.month),
     ].filter(Boolean))).sort().reverse(),
-    [inputRecords, accInputRecords]
+    [inputRecords, accInputRecords, reportRecords, accReportRecords]
   );
 
   // 분기 목록 추출 (YYYY-QN 형식)
@@ -126,35 +128,26 @@ export default function EditorDashboard() {
     return accInputRecords.some(r => r.colA === selectedMonth);
   }, [selectedMonth, accInputRecords]);
 
-  // 보고서 탭 필터링 — 현재/누적 시트 자동 라우팅
+  // 보고서 탭 필터링 — 보고서/누적보고서 시트의 month 컬럼 직접 참조
   const filteredReportRecords = useMemo(() => {
+    // 현재 + 누적 보고서를 합쳐서 month 기준으로 필터 (누적 우선: 같은 월이 있으면 누적만 표시)
+    const accMonths = new Set(accReportRecords.map(r => r.month).filter(Boolean));
+    const allReports = [
+      ...accReportRecords,
+      ...reportRecords.filter(r => !accMonths.has(r.month)), // 누적에 없는 월만 현재 시트에서 가져옴
+    ];
+
     if (reportViewMode === "month") {
-      if (reportSelectedMonth === "all") return reportRecords;
-      if (currentMonthsSet.has(reportSelectedMonth)) {
-        // 현재 시트
-        const codes = new Set(inputRecords.filter(r => r.colA === reportSelectedMonth).map(r => r.code));
-        return reportRecords.filter(r => codes.has(r.code));
-      } else {
-        // 누적 시트 (이전달)
-        const codes = new Set(accInputRecords.filter(r => r.colA === reportSelectedMonth).map(r => r.code));
-        return accReportRecords.filter(r => codes.has(r.code));
-      }
+      if (reportSelectedMonth === "all") return allReports;
+      return allReports.filter(r => r.month === reportSelectedMonth);
     } else {
-      if (reportSelectedQuarter === "all") return reportRecords;
+      if (reportSelectedQuarter === "all") return allReports;
       const [year, q] = reportSelectedQuarter.split("-Q");
       const qNum = parseInt(q);
       const months = [1, 2, 3].map(i => `${year}-${String((qNum - 1) * 3 + i).padStart(2, "0")}`);
-      // 분기 내 월을 현재/누적으로 분리
-      const currMonths = months.filter(m => currentMonthsSet.has(m));
-      const histMonths = months.filter(m => !currentMonthsSet.has(m));
-      const currCodes = new Set(inputRecords.filter(r => currMonths.includes(r.colA)).map(r => r.code));
-      const histCodes = new Set(accInputRecords.filter(r => histMonths.includes(r.colA)).map(r => r.code));
-      const currFiltered = reportRecords.filter(r => currCodes.has(r.code));
-      // 누적 데이터에서는 현재 시트와 중복되는 코드 제외
-      const histFiltered = accReportRecords.filter(r => histCodes.has(r.code) && !currCodes.has(r.code));
-      return [...currFiltered, ...histFiltered];
+      return allReports.filter(r => months.includes(r.month));
     }
-  }, [reportRecords, accReportRecords, inputRecords, accInputRecords, reportViewMode, reportSelectedMonth, reportSelectedQuarter, currentMonthsSet]);
+  }, [reportRecords, accReportRecords, reportViewMode, reportSelectedMonth, reportSelectedQuarter]);
 
   // 현재 유저가 가진 수익코드 목록 (표시된 데이터 기준 — 현재/누적 자동 전환)
   const availableCodes = useMemo(() => {
@@ -764,72 +757,92 @@ export default function EditorDashboard() {
   );
 
   // TAB 1: 보고서 조회
+  // 컬럼 순서: 연월 | 수익코드 사업부 브랜드 캠퍼스 작성자 | 재원(15일) 최종퇴원 최종퇴원율 브랜드평균 | 목표퇴원율
+  //           | aca재원(말일) aca신규 aca퇴원 aca퇴원율 aca브랜드평균 | 경고 종강 이벤트 합계 퇴원제외율
+  //           | aca재원(15일) 재원제외
   const renderReportTab = () => (
     <div className="data-table-container" style={{ padding: 0, margin: 0, border: "none" }}>
-      <table className="data-table" style={{ borderCollapse: "collapse", fontSize: "0.80rem" }}>
+      <table className="data-table" style={{ fontSize: "0.80rem" }}>
         <thead>
           <tr>
-            <th rowSpan={2} style={{ background: "rgba(0,0,0,0.04)", borderRight: "1px solid rgba(0,0,0,0.08)" }}>수익코드</th>
+            <th rowSpan={2} style={{ background: "rgba(0,0,0,0.04)", whiteSpace: "nowrap" }}>연월</th>
+            <th rowSpan={2} style={{ background: "rgba(0,0,0,0.04)", fontWeight: "bold" }}>수익코드</th>
             <th rowSpan={2} style={{ background: "rgba(0,0,0,0.04)" }}>사업부</th>
             <th rowSpan={2} style={{ background: "rgba(0,0,0,0.04)" }}>브랜드</th>
             <th rowSpan={2} style={{ background: "rgba(0,0,0,0.04)" }}>캠퍼스</th>
             <th rowSpan={2} style={{ background: "rgba(0,0,0,0.04)", borderRight: "1px solid rgba(0,0,0,0.08)" }}>작성자</th>
-            <th colSpan={4} style={{ background: "rgba(5,150,105,0.12)", color: "#059669", borderRight: "1px solid rgba(0,0,0,0.08)" }}>최종퇴원율</th>
-            <th rowSpan={2} style={{ background: "rgba(37,99,235,0.10)", color: "#2563eb", borderRight: "1px solid rgba(0,0,0,0.08)" }}>목표퇴원율</th>
-            <th colSpan={6} style={{ background: "rgba(0,0,0,0.03)", borderRight: "1px solid rgba(0,0,0,0.08)" }}>ACA 기초데이터</th>
-            <th colSpan={3} style={{ background: "rgba(0,0,0,0.05)", borderRight: "1px solid rgba(0,0,0,0.08)" }}>ACA 퇴원율</th>
-            <th colSpan={5} style={{ background: "rgba(245, 158, 11, 0.15)", color: "#d97706", borderRight: "1px solid rgba(0,0,0,0.08)" }}>경고 * 종강 * 이벤트 퇴원</th>
+            <th colSpan={4} style={{ backgroundImage: "linear-gradient(rgba(5,150,105,0.12), rgba(5,150,105,0.12))", color: "#059669", borderTop: "2px solid #059669", borderLeft: "2px solid #059669" }}>최종퇴원율</th>
+            <th rowSpan={2} style={{ backgroundImage: "linear-gradient(rgba(37,99,235,0.10), rgba(37,99,235,0.10))", color: "#2563eb", whiteSpace: "nowrap", borderTop: "2px solid #059669", borderRight: "2px solid #059669" }}>목표퇴원율</th>
+            <th colSpan={5} style={{ background: "rgba(0,0,0,0.03)", borderRight: "1px solid rgba(0,0,0,0.08)" }}>ACA</th>
+            <th colSpan={5} style={{ backgroundImage: "linear-gradient(rgba(245,158,11,0.15), rgba(245,158,11,0.15))", color: "#d97706", borderRight: "1px solid rgba(0,0,0,0.08)" }}>경고·종강·이벤트</th>
+            <th colSpan={2} style={{ background: "rgba(0,0,0,0.03)" }}>ACA 재원</th>
           </tr>
           <tr>
-            <th style={{ background: "rgba(5,150,105,0.06)", color: "var(--text-secondary)" }}>재원(15일)</th>
-            <th style={{ background: "rgba(5,150,105,0.06)", color: "var(--text-secondary)" }}>최종퇴원</th>
-            <th style={{ background: "rgba(5,150,105,0.06)", color: "var(--text-secondary)" }}>최종퇴원율(%)</th>
-            <th style={{ background: "rgba(5,150,105,0.06)", color: "var(--text-secondary)", borderRight: "1px solid rgba(0,0,0,0.08)" }}>브랜드평균</th>
+            {/* 최종퇴원율 4종 */}
+            <th style={{ backgroundImage: "linear-gradient(rgba(5,150,105,0.06), rgba(5,150,105,0.06))", color: "var(--text-secondary)", whiteSpace: "nowrap", borderLeft: "2px solid #059669" }}>재원(15일)</th>
+            <th style={{ backgroundImage: "linear-gradient(rgba(5,150,105,0.06), rgba(5,150,105,0.06))", color: "var(--text-secondary)" }}>최종퇴원</th>
+            <th style={{ backgroundImage: "linear-gradient(rgba(5,150,105,0.06), rgba(5,150,105,0.06))", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>퇴원율(%)</th>
+            <th style={{ backgroundImage: "linear-gradient(rgba(5,150,105,0.06), rgba(5,150,105,0.06))", color: "var(--text-secondary)", borderRight: "1px solid rgba(0,0,0,0.08)", whiteSpace: "nowrap" }}>브랜드평균(%)</th>
+            {/* ACA 5종 */}
+            <th style={{ background: "rgba(0,0,0,0.02)", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>재원(말일)</th>
             <th style={{ background: "rgba(0,0,0,0.02)", color: "var(--text-secondary)" }}>신규</th>
             <th style={{ background: "rgba(0,0,0,0.02)", color: "var(--text-secondary)" }}>퇴원</th>
-            <th style={{ background: "rgba(0,0,0,0.02)", color: "var(--text-secondary)" }}>휴원</th>
-            <th style={{ background: "rgba(0,0,0,0.02)", color: "var(--text-secondary)" }}>재원(15일)</th>
-            <th style={{ background: "rgba(0,0,0,0.03)", color: "var(--text-secondary)" }}>재원수(말일)</th>
-            <th style={{ background: "rgba(0,0,0,0.03)", color: "var(--text-secondary)", borderRight: "1px solid rgba(0,0,0,0.08)" }}>재원(15-말일)</th>
-            <th style={{ background: "rgba(0,0,0,0.04)", color: "var(--text-secondary)" }}>퇴원</th>
-            <th style={{ background: "rgba(0,0,0,0.04)", color: "var(--text-secondary)" }}>퇴원율(%)</th>
-            <th style={{ background: "rgba(0,0,0,0.04)", color: "var(--text-secondary)", borderRight: "1px solid rgba(0,0,0,0.08)" }}>브랜드평균</th>
-            <th style={{ background: "rgba(245, 158, 11, 0.08)", color: "var(--text-secondary)" }}>8.경고</th>
-            <th style={{ background: "rgba(245, 158, 11, 0.08)", color: "var(--text-secondary)" }}>9.종강</th>
-            <th style={{ background: "rgba(245, 158, 11, 0.08)", color: "var(--text-secondary)" }}>10.이벤트</th>
-            <th style={{ background: "rgba(245, 158, 11, 0.10)", color: "var(--text-secondary)" }}>계</th>
-            <th style={{ background: "rgba(245, 158, 11, 0.08)", color: "var(--text-secondary)", borderRight: "1px solid rgba(0,0,0,0.08)" }}>제외율(%)</th>
+            <th style={{ background: "rgba(0,0,0,0.02)", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>퇴원율(%)</th>
+            <th style={{ background: "rgba(0,0,0,0.02)", color: "var(--text-secondary)", borderRight: "1px solid rgba(0,0,0,0.08)", whiteSpace: "nowrap" }}>브랜드평균</th>
+            {/* 경고·종강·이벤트 5종 */}
+            <th style={{ backgroundImage: "linear-gradient(rgba(245,158,11,0.08), rgba(245,158,11,0.08))", color: "var(--text-secondary)" }}>경고</th>
+            <th style={{ backgroundImage: "linear-gradient(rgba(245,158,11,0.08), rgba(245,158,11,0.08))", color: "var(--text-secondary)" }}>종강</th>
+            <th style={{ backgroundImage: "linear-gradient(rgba(245,158,11,0.08), rgba(245,158,11,0.08))", color: "var(--text-secondary)" }}>이벤트</th>
+            <th style={{ backgroundImage: "linear-gradient(rgba(245,158,11,0.10), rgba(245,158,11,0.10))", color: "var(--text-secondary)" }}>합계</th>
+            <th style={{ backgroundImage: "linear-gradient(rgba(245,158,11,0.08), rgba(245,158,11,0.08))", color: "var(--text-secondary)", borderRight: "1px solid rgba(0,0,0,0.08)", whiteSpace: "nowrap" }}>제외율(%)</th>
+            {/* ACA 재원 2종 */}
+            <th style={{ background: "rgba(0,0,0,0.02)", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>재원(15일)</th>
+            <th style={{ background: "rgba(0,0,0,0.02)", color: "var(--text-secondary)" }}>재원제외</th>
           </tr>
         </thead>
         <tbody>
-          {filteredReportRecords.map(record => (
+          {filteredReportRecords.map(record => {
+            const finalRateNum = parseFloat(record.finalRate);
+            const targetRateNum = parseFloat(record.targetRate);
+            const isOverTarget = !isNaN(finalRateNum) && !isNaN(targetRateNum) && finalRateNum > targetRateNum;
+            return (
             <tr key={record.id}>
+              <td style={{ color: "var(--text-secondary)", whiteSpace: "nowrap" }}>{record.month}</td>
               <td style={{ color: "var(--text-primary)", fontWeight: "bold" }}>{record.code}</td>
               <td style={{ color: "var(--text-secondary)" }}>{record.department}</td>
               <td style={{ color: "var(--text-secondary)" }}>{record.brand}</td>
               <td style={{ color: "var(--text-secondary)" }}>{record.campus}</td>
               <td style={{ color: "var(--text-secondary)", borderRight: "1px solid rgba(0,0,0,0.08)" }}>{record.manager}</td>
-              <td style={{ color: "var(--text-primary)" }}>{record.finalJaewon}</td>
+              {/* 최종퇴원율 */}
+              <td style={{ borderLeft: "2px solid #059669" }}>{record.finalJaewon}</td>
               <td style={{ color: "#059669", fontWeight: "bold" }}>{record.finalDropout}</td>
-              <td style={{ color: "var(--danger)", fontWeight: "bold" }}>{record.finalRate}</td>
+              <td style={{
+                color: isOverTarget ? "#fff" : "var(--danger)",
+                fontWeight: "bold",
+                background: isOverTarget ? "#dc2626" : undefined,
+                borderRadius: isOverTarget ? "4px" : undefined,
+              }}>{record.finalRate}</td>
               <td style={{ color: "var(--text-secondary)", borderRight: "1px solid rgba(0,0,0,0.08)" }}>{record.finalBrandAvg}</td>
-              <td style={{ color: "#2563eb", fontWeight: "bold", borderRight: "1px solid rgba(0,0,0,0.08)" }}>{record.targetRate}</td>
+              {/* 목표퇴원율 */}
+              <td style={{ color: "#2563eb", fontWeight: "bold", borderRight: "2px solid #059669" }}>{record.targetRate}</td>
+              {/* ACA */}
+              <td style={{ color: "var(--text-secondary)" }}>{record.acaJaewonEnd}</td>
               <td style={{ color: "var(--text-secondary)" }}>{record.acaNew}</td>
               <td style={{ color: "var(--text-secondary)" }}>{record.acaDropout}</td>
-              <td style={{ color: "var(--text-secondary)" }}>{record.acaHold}</td>
-              <td style={{ color: "var(--text-secondary)" }}>{record.acaJaewon}</td>
-              <td style={{ background: "rgba(0,0,0,0.02)", color: "var(--text-secondary)" }}>{record.acaJaewonEnd}</td>
-              <td style={{ background: "rgba(0,0,0,0.02)", color: "var(--text-secondary)", borderRight: "1px solid rgba(0,0,0,0.08)" }}>{record.acaJaewonDiff}</td>
-              <td style={{ color: "var(--text-secondary)" }}>{record.acaRealDropout}</td>
               <td style={{ color: "var(--text-secondary)" }}>{record.acaRealRate}</td>
               <td style={{ color: "var(--text-secondary)", borderRight: "1px solid rgba(0,0,0,0.08)" }}>{record.acaBrandAvg}</td>
+              {/* 경고·종강·이벤트 */}
               <td style={{ color: "var(--text-secondary)" }}>{record.exWarn}</td>
               <td style={{ color: "var(--text-secondary)" }}>{record.exEnd}</td>
               <td style={{ color: "var(--text-secondary)" }}>{record.exEvent}</td>
               <td style={{ color: "#d97706", fontWeight: "bold" }}>{record.exTotal}</td>
               <td style={{ color: "var(--text-secondary)", borderRight: "1px solid rgba(0,0,0,0.08)" }}>{record.exRate}</td>
+              {/* ACA 재원 */}
+              <td style={{ color: "var(--text-secondary)" }}>{record.acaJaewon}</td>
+              <td style={{ color: "var(--text-secondary)" }}>{record.acaJaewonDiff}</td>
             </tr>
-          ))}
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -859,7 +872,7 @@ export default function EditorDashboard() {
         <thead>
           <tr>
             <th rowSpan={2} style={{ background: "rgba(0,0,0,0.03)", whiteSpace: "nowrap" }}>#</th>
-            <th colSpan={showAdminCols ? 3 : 1} style={{ background: "rgba(5,150,105,0.12)", borderRight: "1px solid rgba(0,0,0,0.08)", color: "#059669" }}>
+            <th colSpan={showAdminCols ? 3 : 1} style={{ backgroundImage: "linear-gradient(rgba(5,150,105,0.12), rgba(5,150,105,0.12))", borderRight: "1px solid rgba(0,0,0,0.08)", color: "#059669" }}>
               <span
                 onClick={() => setShowAdminCols(v => !v)}
                 style={{ cursor: "pointer", userSelect: "none", display: "inline-flex", alignItems: "center", gap: "0.3rem" }}
@@ -868,7 +881,7 @@ export default function EditorDashboard() {
                 {showAdminCols ? "▼" : "▶"} 기조실 확정
               </span>
             </th>
-            <th colSpan={4} style={{ background: "rgba(79,70,229,0.10)", borderRight: "1px solid rgba(0,0,0,0.08)", color: "#4f46e5" }}>사업부 작성</th>
+            <th colSpan={4} style={{ backgroundImage: "linear-gradient(rgba(79,70,229,0.10), rgba(79,70,229,0.10))", borderRight: "1px solid rgba(0,0,0,0.08)", color: "#4f46e5" }}>사업부 작성</th>
             <th colSpan={11} style={{ background: "rgba(0,0,0,0.03)" }}>퇴원생 정보</th>
           </tr>
           <tr style={{ background: "rgba(0,0,0,0.02)", color: "var(--text-secondary)", fontSize: "0.75rem" }}>

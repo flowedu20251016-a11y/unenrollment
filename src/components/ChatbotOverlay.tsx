@@ -4,43 +4,36 @@ import { useState, useRef, useEffect } from "react";
 
 type Stage = "home" | "submenu" | "detail" | "search";
 
-interface SubItem {
-  no: string;
-  title: string;
-}
-
 export default function ChatbotOverlay() {
   const [isOpen, setIsOpen] = useState(false);
-
-  // 트리 내비게이션 상태
   const [stage, setStage] = useState<Stage>("home");
-  const [categories, setCategories] = useState<string[]>([]);
-  const [selectedCategory, setSelectedCategory] = useState<string>("");
-  const [subItems, setSubItems] = useState<SubItem[]>([]);
-  const [detailTitle, setDetailTitle] = useState<string>("");
-  const [detailAnswer, setDetailAnswer] = useState<string>("");
 
-  // 텍스트 검색 상태
-  const [searchInput, setSearchInput] = useState("");
-  const [searchResult, setSearchResult] = useState<string>("");
+  const [categories, setCategories] = useState<string[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState("");
+
+  const [subItems, setSubItems] = useState<string[]>([]);
+  const [selectedSub, setSelectedSub] = useState("");
+
+  const [detail, setDetail] = useState("");
   const [loading, setLoading] = useState(false);
 
+  const [searchInput, setSearchInput] = useState("");
+  const [searchResults, setSearchResults] = useState<{ category: string; subcategory: string; detail: string }[]>([]);
+
   const inputRef = useRef<HTMLInputElement>(null);
+
   const bodyRef = useRef<HTMLDivElement>(null);
 
-  // 챗봇 열릴 때 카테고리 목록 로드
   useEffect(() => {
-    if (isOpen && categories.length === 0) {
-      loadCategories();
-    }
+    if (isOpen && categories.length === 0) loadCategories();
   }, [isOpen]);
 
-  // 스테이지 바뀔 때 스크롤 맨 위로
   useEffect(() => {
     if (bodyRef.current) bodyRef.current.scrollTop = 0;
   }, [stage]);
 
   const loadCategories = async () => {
+    setLoading(true);
     try {
       const res = await fetch("/api/chatbot", {
         method: "POST",
@@ -49,8 +42,8 @@ export default function ChatbotOverlay() {
       });
       const data = await res.json();
       setCategories(data.categories || []);
-    } catch {
-      setCategories([]);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -61,33 +54,27 @@ export default function ChatbotOverlay() {
       const res = await fetch("/api/chatbot", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "submenu", keyword: cat }),
+        body: JSON.stringify({ action: "submenu", category: cat }),
       });
       const data = await res.json();
       setSubItems(data.items || []);
-      setStage("submenu");
-    } catch {
-      setSubItems([]);
       setStage("submenu");
     } finally {
       setLoading(false);
     }
   };
 
-  const handleSubItemClick = async (no: string, title: string) => {
+  const handleSubClick = async (sub: string) => {
+    setSelectedSub(sub);
     setLoading(true);
     try {
       const res = await fetch("/api/chatbot", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "detail", keyword: selectedCategory, subNo: no }),
+        body: JSON.stringify({ action: "detail", category: selectedCategory, subcategory: sub }),
       });
       const data = await res.json();
-      setDetailTitle(data.title || title);
-      setDetailAnswer(data.answer || "답변을 찾을 수 없습니다.");
-      setStage("detail");
-    } catch {
-      setDetailAnswer("서버 오류가 발생했습니다.");
+      setDetail(data.detail || "상세 내용이 없습니다.");
       setStage("detail");
     } finally {
       setLoading(false);
@@ -95,20 +82,18 @@ export default function ChatbotOverlay() {
   };
 
   const handleSearch = async () => {
-    if (!searchInput.trim()) return;
+    const q = searchInput.trim();
+    if (!q) return;
     setLoading(true);
-    setSearchResult("");
+    setSearchResults([]);
     try {
       const res = await fetch("/api/chatbot", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "query", query: searchInput }),
+        body: JSON.stringify({ action: "query", query: q }),
       });
       const data = await res.json();
-      setSearchResult(data.reply || "답변을 찾을 수 없습니다.");
-      setStage("search");
-    } catch {
-      setSearchResult("서버 연결 오류가 발생했습니다.");
+      setSearchResults(data.results || []);
       setStage("search");
     } finally {
       setLoading(false);
@@ -117,18 +102,29 @@ export default function ChatbotOverlay() {
 
   const goHome = () => {
     setStage("home");
-    setSearchInput("");
-    setSearchResult("");
-    setDetailTitle("");
-    setDetailAnswer("");
-    setSubItems([]);
     setSelectedCategory("");
+    setSelectedSub("");
+    setSubItems([]);
+    setDetail("");
+    setSearchInput("");
+    setSearchResults([]);
+  };
+
+  const goBack = () => {
+    if (stage === "detail") {
+      setStage("submenu");
+      setDetail("");
+    } else if (stage === "search") {
+      goHome();
+    } else {
+      goHome();
+    }
   };
 
   const BASE: React.CSSProperties = {
     width: "360px",
     height: "520px",
-    background: "rgba(10, 10, 15, 0.85)",
+    background: "rgba(10, 10, 15, 0.88)",
     backdropFilter: "blur(20px)",
     WebkitBackdropFilter: "blur(20px)",
     border: "1px solid rgba(255,255,255,0.12)",
@@ -147,20 +143,7 @@ export default function ChatbotOverlay() {
     alignItems: "center",
     borderBottom: "1px solid rgba(255,255,255,0.1)",
     gap: "0.5rem",
-  };
-
-  const BTN_CLOSE: React.CSSProperties = {
-    background: "none", border: "none", color: "#aaa", cursor: "pointer", fontSize: "1.1rem", lineHeight: 1,
-  };
-
-  const BACK_BTN: React.CSSProperties = {
-    background: "rgba(255,255,255,0.08)",
-    border: "1px solid rgba(255,255,255,0.15)",
-    borderRadius: "6px",
-    color: "var(--text-secondary, #aaa)",
-    fontSize: "0.78rem",
-    padding: "0.25rem 0.65rem",
-    cursor: "pointer",
+    flexShrink: 0,
   };
 
   const BODY: React.CSSProperties = {
@@ -169,7 +152,7 @@ export default function ChatbotOverlay() {
     padding: "1rem",
     display: "flex",
     flexDirection: "column",
-    gap: "0.6rem",
+    gap: "0.5rem",
   };
 
   const CAT_BTN: React.CSSProperties = {
@@ -200,117 +183,105 @@ export default function ChatbotOverlay() {
     cursor: "pointer",
     display: "flex",
     alignItems: "center",
-    gap: "0.6rem",
+    gap: "0.5rem",
   };
 
-  const FOOTER: React.CSSProperties = {
-    padding: "0.75rem",
-    background: "rgba(0,0,0,0.25)",
-    borderTop: "1px solid rgba(255,255,255,0.06)",
-    display: "flex",
-    gap: "0.4rem",
-  };
-
-  const SEND_BTN: React.CSSProperties = {
-    background: "var(--accent-primary, #6366f1)",
-    border: "none",
-    borderRadius: "8px",
-    padding: "0 1rem",
-    color: "#fff",
+  const BACK_BTN: React.CSSProperties = {
+    background: "rgba(255,255,255,0.08)",
+    border: "1px solid rgba(255,255,255,0.15)",
+    borderRadius: "6px",
+    color: "#aaa",
+    fontSize: "0.78rem",
+    padding: "0.25rem 0.65rem",
     cursor: "pointer",
-    fontWeight: "bold",
-    fontSize: "0.85rem",
-    whiteSpace: "nowrap",
+    flexShrink: 0,
   };
 
-  const INPUT_STYLE: React.CSSProperties = {
-    flex: 1,
-    padding: "0.65rem 0.8rem",
-    borderRadius: "8px",
-    border: "1px solid rgba(255,255,255,0.18)",
-    background: "rgba(255,255,255,0.07)",
-    color: "#fff",
-    fontSize: "0.88rem",
-  };
+  const headerTitle =
+    stage === "home" ? "📋 퇴원사유 매뉴얼" :
+    stage === "submenu" ? `📂 ${selectedCategory}` :
+    stage === "detail" ? `📌 ${selectedSub}` :
+    `🔍 "${searchInput}" 검색결과`;
 
   return (
     <div style={{ position: "fixed", bottom: "30px", right: "30px", zIndex: 9999 }}>
       {isOpen ? (
         <div style={BASE}>
-          {/* ── HEADER ── */}
+          {/* HEADER */}
           <div style={HEADER}>
             <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flex: 1, minWidth: 0 }}>
               {stage !== "home" && (
-                <button style={BACK_BTN} onClick={() => {
-                  if (stage === "detail") setStage("submenu");
-                  else goHome();
-                }}>
-                  ← 뒤로
-                </button>
+                <button style={BACK_BTN} onClick={goBack}>← 뒤로</button>
               )}
-              <h3 style={{ margin: 0, fontSize: "0.95rem", color: "#fff", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                {stage === "home" ? "🤖 사유 작성 매뉴얼" :
-                  stage === "submenu" ? `📂 ${selectedCategory}` :
-                  stage === "detail" ? `📌 ${detailTitle}` :
-                  "🔍 검색 결과"}
-              </h3>
+              <span style={{
+                fontSize: "0.92rem", fontWeight: 700, color: "#fff",
+                whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+              }}>
+                {headerTitle}
+              </span>
             </div>
-            <button style={BTN_CLOSE} onClick={() => setIsOpen(false)}>✖</button>
+            <button
+              onClick={() => setIsOpen(false)}
+              style={{ background: "none", border: "none", color: "#aaa", cursor: "pointer", fontSize: "1.1rem", lineHeight: 1 }}
+            >✖</button>
           </div>
 
-          {/* ── BODY ── */}
+          {/* BODY */}
           <div style={BODY} ref={bodyRef}>
             {loading && (
-              <div style={{ color: "#aaa", fontSize: "0.82rem", fontStyle: "italic", textAlign: "center", padding: "1rem 0" }}>
+              <div style={{ color: "#aaa", fontSize: "0.82rem", textAlign: "center", padding: "2rem 0" }}>
                 불러오는 중...
               </div>
             )}
 
-            {/* HOME: 카테고리 목록 */}
+            {/* HOME: 대분류 */}
             {!loading && stage === "home" && (
               <>
-                <p style={{ margin: 0, fontSize: "0.82rem", color: "rgba(255,255,255,0.5)", marginBottom: "0.25rem" }}>
-                  아래 항목을 클릭하거나 아래 검색창에 질문을 입력하세요.
+                <p style={{ margin: "0 0 0.5rem", fontSize: "0.8rem", color: "rgba(255,255,255,0.45)" }}>
+                  항목을 선택하면 상세 내용을 확인할 수 있습니다.
                 </p>
                 {categories.length === 0 ? (
-                  <p style={{ opacity: 0.45, fontSize: "0.84rem" }}>
-                    메뉴 항목이 없습니다.<br />구글 시트 Q&A 탭을 확인해 주세요.
+                  <p style={{ opacity: 0.45, fontSize: "0.84rem", color: "#fff" }}>
+                    Q&A 시트에 데이터가 없습니다.
                   </p>
                 ) : (
                   categories.map(cat => (
                     <button key={cat} style={CAT_BTN} onClick={() => handleCategoryClick(cat)}>
-                      {cat}
-                      <span style={{ fontSize: "0.9rem", opacity: 0.6 }}>›</span>
+                      <span>{cat}</span>
+                      <span style={{ opacity: 0.5, fontSize: "0.85rem" }}>›</span>
                     </button>
                   ))
                 )}
               </>
             )}
 
-            {/* SUBMENU: 번호 목록 */}
+            {/* SUBMENU: 중분류 */}
             {!loading && stage === "submenu" && (
               <>
-                <p style={{ margin: 0, fontSize: "0.82rem", color: "rgba(255,255,255,0.5)", marginBottom: "0.25rem" }}>
-                  항목을 선택하면 상세 답변을 볼 수 있습니다.
+                <p style={{ margin: "0 0 0.5rem", fontSize: "0.8rem", color: "rgba(255,255,255,0.45)" }}>
+                  세부 항목을 선택하세요.
                 </p>
                 {subItems.length === 0 ? (
-                  <p style={{ opacity: 0.45, fontSize: "0.84rem" }}>서브 항목이 없습니다.</p>
+                  <p style={{ opacity: 0.45, fontSize: "0.84rem", color: "#fff" }}>
+                    중분류 항목이 없습니다.
+                  </p>
                 ) : (
-                  subItems.map(item => (
-                    <button key={item.no} style={SUB_BTN} onClick={() => handleSubItemClick(item.no, item.title)}>
+                  subItems.map((item, i) => (
+                    <button key={i} style={SUB_BTN} onClick={() => handleSubClick(item)}>
                       <span style={{
-                        minWidth: "24px", height: "24px", background: "rgba(99,102,241,0.35)", borderRadius: "50%",
+                        minWidth: "22px", height: "22px",
+                        background: "rgba(99,102,241,0.35)", borderRadius: "50%",
                         display: "flex", alignItems: "center", justifyContent: "center",
-                        fontSize: "0.78rem", fontWeight: 700, color: "#a5b4fc", flexShrink: 0,
-                      }}>{item.no}</span>
-                      <span>{item.title}</span>
+                        fontSize: "0.72rem", fontWeight: 700, color: "#a5b4fc", flexShrink: 0,
+                      }}>{i + 1}</span>
+                      <span>{item}</span>
                     </button>
                   ))
                 )}
               </>
             )}
 
-            {/* DETAIL: 상세 답변 */}
+            {/* DETAIL: 소분류/상세내역 */}
             {!loading && stage === "detail" && (
               <div style={{
                 background: "rgba(255,255,255,0.06)",
@@ -318,48 +289,87 @@ export default function ChatbotOverlay() {
                 borderRadius: "10px",
                 padding: "1rem",
                 fontSize: "0.9rem",
-                lineHeight: "1.65",
+                lineHeight: "1.7",
                 color: "#e2e8f0",
                 whiteSpace: "pre-wrap",
               }}>
-                {detailAnswer}
+                {detail}
               </div>
             )}
 
-            {/* SEARCH: 텍스트 검색 결과 */}
+            {/* SEARCH: 키워드 검색 결과 */}
             {!loading && stage === "search" && (
               <>
-                <div style={{ fontSize: "0.78rem", color: "rgba(255,255,255,0.4)", marginBottom: "0.25rem" }}>
-                  검색어: <b style={{ color: "#a5b4fc" }}>{searchInput}</b>
-                </div>
-                <div style={{
-                  background: "rgba(255,255,255,0.06)",
-                  border: "1px solid rgba(255,255,255,0.12)",
-                  borderRadius: "10px",
-                  padding: "1rem",
-                  fontSize: "0.9rem",
-                  lineHeight: "1.65",
-                  color: "#e2e8f0",
-                  whiteSpace: "pre-wrap",
-                }}>
-                  {searchResult}
-                </div>
+                {searchResults.length === 0 ? (
+                  <p style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.86rem", textAlign: "center", paddingTop: "1rem" }}>
+                    일치하는 항목이 없습니다.
+                  </p>
+                ) : (
+                  searchResults.map((r, i) => (
+                    <button key={i} style={{ ...SUB_BTN, flexDirection: "column", alignItems: "flex-start", gap: "0.25rem" }}
+                      onClick={() => {
+                        setSelectedCategory(r.category);
+                        setSelectedSub(r.subcategory);
+                        setDetail(r.detail);
+                        setStage("detail");
+                      }}
+                    >
+                      <span style={{ fontSize: "0.75rem", color: "#a5b4fc", fontWeight: 600 }}>
+                        {r.category}{r.subcategory ? ` › ${r.subcategory}` : ""}
+                      </span>
+                      {r.detail && (
+                        <span style={{ fontSize: "0.82rem", color: "#cbd5e1", opacity: 0.8 }}
+                          dangerouslySetInnerHTML={{ __html: r.detail.length > 60 ? r.detail.slice(0, 60) + "…" : r.detail }}
+                        />
+                      )}
+                    </button>
+                  ))
+                )}
               </>
             )}
           </div>
 
-          {/* ── FOOTER: 텍스트 검색 ── */}
-          <div style={FOOTER}>
+          {/* FOOTER: 검색 입력창 */}
+          <div style={{
+            padding: "0.75rem",
+            background: "rgba(0,0,0,0.25)",
+            borderTop: "1px solid rgba(255,255,255,0.06)",
+            display: "flex",
+            gap: "0.4rem",
+            flexShrink: 0,
+          }}>
             <input
               ref={inputRef}
               type="text"
               value={searchInput}
               onChange={e => setSearchInput(e.target.value)}
               onKeyDown={e => e.key === "Enter" && handleSearch()}
-              placeholder="직접 검색..."
-              style={INPUT_STYLE}
+              placeholder="키워드 검색..."
+              style={{
+                flex: 1,
+                padding: "0.6rem 0.8rem",
+                borderRadius: "8px",
+                border: "1px solid rgba(255,255,255,0.18)",
+                background: "rgba(255,255,255,0.07)",
+                color: "#fff",
+                fontSize: "0.88rem",
+                outline: "none",
+              }}
             />
-            <button onClick={handleSearch} style={SEND_BTN}>검색</button>
+            <button
+              onClick={handleSearch}
+              style={{
+                background: "var(--accent-primary, #6366f1)",
+                border: "none",
+                borderRadius: "8px",
+                padding: "0 1rem",
+                color: "#fff",
+                cursor: "pointer",
+                fontWeight: "bold",
+                fontSize: "0.85rem",
+                whiteSpace: "nowrap",
+              }}
+            >검색</button>
           </div>
         </div>
       ) : (
