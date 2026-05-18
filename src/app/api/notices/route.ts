@@ -5,7 +5,12 @@ export const dynamic = "force-dynamic";
 
 function getSupabase() {
   const key = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY!;
-  return createClient(process.env.SUPABASE_URL!, key);
+  return createClient(process.env.SUPABASE_URL!, key, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
 }
 
 // GET /api/notices — 목록 조회

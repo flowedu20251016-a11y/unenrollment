@@ -17,7 +17,12 @@ function sanitizePath(str: string): string {
 export async function POST(request: Request) {
   // 요청마다 클라이언트 생성 (env 변수 최신값 보장)
   const supabaseKey = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY!;
-  const supabase = createClient(process.env.SUPABASE_URL!, supabaseKey);
+  const supabase = createClient(process.env.SUPABASE_URL!, supabaseKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
 
   console.log("[Upload] KEY prefix:", supabaseKey?.slice(0, 20));
   console.log("[Upload] BUCKET:", BUCKET);
