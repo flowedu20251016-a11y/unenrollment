@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, useMemo, useRef, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import ChatbotOverlay from "@/components/ChatbotOverlay";
 
 // --- 기존 보고서 뷰 용 스키마 ---
@@ -29,9 +29,10 @@ interface CategoryOptions {
   requireProof: boolean;
 }
 
-export default function EditorDashboard() {
+function EditorDashboardInner() {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<"report" | "input">("input");
+  const searchParams = useSearchParams();
+  const [activeTab, setActiveTab] = useState<"report" | "input" | "final-placeholder">("input");
   const [userInfo, setUserInfo] = useState<any>(null);
 
   const [reportRecords, setReportRecords] = useState<ReportRecordType[]>([]);
@@ -61,6 +62,9 @@ export default function EditorDashboard() {
   const [reportViewMode, setReportViewMode] = useState<"month" | "quarter">("month");
   const [reportSelectedMonth, setReportSelectedMonth] = useState("all");
   const [reportSelectedQuarter, setReportSelectedQuarter] = useState("all");
+  const [reportSelectedDepts, setReportSelectedDepts] = useState<string[]>([]);
+  const [reportSelectedBrands, setReportSelectedBrands] = useState<string[]>([]);
+  const [reportSelectedCampuses, setReportSelectedCampuses] = useState<string[]>([]);
 
   // 팝업 → 행 이동 시 하이라이트
   const [highlightedRowId, setHighlightedRowId] = useState<string | null>(null);
@@ -128,26 +132,34 @@ export default function EditorDashboard() {
     return accInputRecords.some(r => r.colA === selectedMonth);
   }, [selectedMonth, accInputRecords]);
 
+  // 보고서 탭 기본 데이터 (현재+누적 합산, 누적 우선)
+  const allEditorReportRecords = useMemo(() => {
+    const accMonths = new Set(accReportRecords.map(r => r.month).filter(Boolean));
+    return [...accReportRecords, ...reportRecords.filter(r => !accMonths.has(r.month))];
+  }, [reportRecords, accReportRecords]);
+
+  const reportDeptOptions = useMemo(() => Array.from(new Set(allEditorReportRecords.map(r => r.department).filter(Boolean))).sort() as string[], [allEditorReportRecords]);
+  const reportBrandOptions = useMemo(() => Array.from(new Set(allEditorReportRecords.map(r => r.brand).filter(Boolean))).sort() as string[], [allEditorReportRecords]);
+  const reportCampusOptions = useMemo(() => Array.from(new Set(allEditorReportRecords.map(r => r.campus).filter(Boolean))).sort() as string[], [allEditorReportRecords]);
+
   // 보고서 탭 필터링 — 보고서/누적보고서 시트의 month 컬럼 직접 참조
   const filteredReportRecords = useMemo(() => {
-    // 현재 + 누적 보고서를 합쳐서 month 기준으로 필터 (누적 우선: 같은 월이 있으면 누적만 표시)
-    const accMonths = new Set(accReportRecords.map(r => r.month).filter(Boolean));
-    const allReports = [
-      ...accReportRecords,
-      ...reportRecords.filter(r => !accMonths.has(r.month)), // 누적에 없는 월만 현재 시트에서 가져옴
-    ];
-
+    let result = allEditorReportRecords;
     if (reportViewMode === "month") {
-      if (reportSelectedMonth === "all") return allReports;
-      return allReports.filter(r => r.month === reportSelectedMonth);
+      if (reportSelectedMonth !== "all") result = result.filter(r => r.month === reportSelectedMonth);
     } else {
-      if (reportSelectedQuarter === "all") return allReports;
-      const [year, q] = reportSelectedQuarter.split("-Q");
-      const qNum = parseInt(q);
-      const months = [1, 2, 3].map(i => `${year}-${String((qNum - 1) * 3 + i).padStart(2, "0")}`);
-      return allReports.filter(r => months.includes(r.month));
+      if (reportSelectedQuarter !== "all") {
+        const [year, q] = reportSelectedQuarter.split("-Q");
+        const qNum = parseInt(q);
+        const months = [1, 2, 3].map(i => `${year}-${String((qNum - 1) * 3 + i).padStart(2, "0")}`);
+        result = result.filter(r => months.includes(r.month));
+      }
     }
-  }, [reportRecords, accReportRecords, reportViewMode, reportSelectedMonth, reportSelectedQuarter]);
+    if (reportSelectedDepts.length > 0) result = result.filter(r => reportSelectedDepts.includes(r.department));
+    if (reportSelectedBrands.length > 0) result = result.filter(r => reportSelectedBrands.includes(r.brand));
+    if (reportSelectedCampuses.length > 0) result = result.filter(r => reportSelectedCampuses.includes(r.campus));
+    return result;
+  }, [allEditorReportRecords, reportViewMode, reportSelectedMonth, reportSelectedQuarter, reportSelectedDepts, reportSelectedBrands, reportSelectedCampuses]);
 
   // 현재 유저가 가진 수익코드 목록 (표시된 데이터 기준 — 현재/누적 자동 전환)
   const availableCodes = useMemo(() => {
@@ -296,8 +308,24 @@ export default function EditorDashboard() {
     }
     const user = JSON.parse(sessionStr);
     setUserInfo(user);
+    const initSection = searchParams?.get("section");
+    if (initSection === "report" && (user.role === "admin" || user.role === "mid_admin" || user.reportCodes?.length > 0)) {
+      setActiveTab("report");
+    } else if (initSection === "input") {
+      setActiveTab("input");
+    } else if (user.role === "admin" || user.role === "mid_admin" || (user.reportCodes?.length > 0)) {
+      setActiveTab("report");
+    }
     fetchData(user);
   }, []);
+
+  // 사이드바 section 파라미터 → 탭 전환
+  useEffect(() => {
+    const s = searchParams?.get("section");
+    if (s === "report") setActiveTab("report");
+    else if (s === "input") setActiveTab("input");
+    else if (s === "input-final" || s === "report-final") setActiveTab("final-placeholder");
+  }, [searchParams]);
 
   const fetchData = async (user: any) => {
     setLoading(true);
@@ -405,7 +433,9 @@ export default function EditorDashboard() {
       const res = await fetch("/api/upload", { method: "POST", body: formData });
       const data = await res.json();
       if (data.webViewLink) {
-        handleInputChange(id, "xFileLink", data.webViewLink);
+        const existing = inputRecords.find(r => r.id === id)?.xFileLink || "";
+        const newLink = existing ? existing + "|||" + data.webViewLink : data.webViewLink;
+        handleInputChange(id, "xFileLink", newLink);
         alert("업로드 성공!");
       } else {
         alert("업로드 실패: " + data.error + (data.detail ? "\n\n상세: " + data.detail : ""));
@@ -415,6 +445,15 @@ export default function EditorDashboard() {
     } finally {
       setUploadingId(null);
     }
+  };
+
+  const handleFileDelete = (id: string, idx: number) => {
+    if (!confirm("이 파일을 목록에서 삭제할까요?")) return;
+    const record = inputRecords.find(r => r.id === id);
+    if (!record?.xFileLink) return;
+    const links = record.xFileLink.split("|||");
+    links.splice(idx, 1);
+    handleInputChange(id, "xFileLink", links.join("|||"));
   };
 
   const handleTempSave = () => {
@@ -428,7 +467,7 @@ export default function EditorDashboard() {
   };
 
   const handleFinalSubmit = async () => {
-    const recordsToSave = inputRecords.filter(r => r.vReason1 || r.yDetail);
+    const recordsToSave = inputRecords.filter(r => r.vReason1 || r.yDetail || r.xFileLink);
     if (recordsToSave.length === 0) {
       alert("작성된 사유가 없습니다.");
       return;
@@ -475,6 +514,111 @@ export default function EditorDashboard() {
   // -----------------------------------------------------
   // 유틸리티 로직 (내보내기)
   // -----------------------------------------------------
+
+  const handleExportXLSX = async () => {
+    const XLSX = await import("xlsx");
+    const wb = XLSX.utils.book_new();
+
+    if (activeTab === "report") {
+      const records = filteredReportRecords;
+      if (records.length === 0) return alert("다운로드할 데이터가 없습니다.");
+
+      // 2행 헤더 구성
+      const header1 = [
+        "연월", "수익코드", "사업부", "브랜드", "캠퍼스", "작성자",
+        "최종퇴원율", "", "", "",
+        "목표퇴원율",
+        "ACA", "", "", "", "",
+        "경고·종강·이벤트", "", "", "", "",
+        "ACA 재원", "",
+      ];
+      const header2 = [
+        "", "", "", "", "", "",
+        "재원(15일)", "최종퇴원", "퇴원율(%)", "브랜드평균(%)",
+        "",
+        "재원(말일)", "신규", "퇴원", "퇴원율(%)", "브랜드평균",
+        "경고", "종강", "이벤트", "합계", "제외율(%)",
+        "재원(15일)", "재원제외",
+      ];
+
+      const dataRows = records.map(r => [
+        r.month, r.code, r.department, r.brand, r.campus, r.manager,
+        r.finalJaewon, r.finalDropout, r.finalRate, r.finalBrandAvg,
+        r.targetRate,
+        r.acaJaewonEnd, r.acaNew, r.acaDropout, r.acaRealRate, r.acaBrandAvg,
+        r.exWarn, r.exEnd, r.exEvent, r.exTotal, r.exRate,
+        r.acaJaewon, r.acaJaewonDiff,
+      ]);
+
+      const wsData = [header1, header2, ...dataRows];
+      const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+      // 병합 셀 설정 (1행 그룹 헤더)
+      ws["!merges"] = [
+        { s: { r: 0, c: 0 }, e: { r: 1, c: 0 } },  // 연월
+        { s: { r: 0, c: 1 }, e: { r: 1, c: 1 } },  // 수익코드
+        { s: { r: 0, c: 2 }, e: { r: 1, c: 2 } },  // 사업부
+        { s: { r: 0, c: 3 }, e: { r: 1, c: 3 } },  // 브랜드
+        { s: { r: 0, c: 4 }, e: { r: 1, c: 4 } },  // 캠퍼스
+        { s: { r: 0, c: 5 }, e: { r: 1, c: 5 } },  // 작성자
+        { s: { r: 0, c: 6 }, e: { r: 0, c: 9 } },  // 최종퇴원율
+        { s: { r: 0, c: 10 }, e: { r: 1, c: 10 } }, // 목표퇴원율
+        { s: { r: 0, c: 11 }, e: { r: 0, c: 15 } }, // ACA
+        { s: { r: 0, c: 16 }, e: { r: 0, c: 20 } }, // 경고·종강·이벤트
+        { s: { r: 0, c: 21 }, e: { r: 0, c: 22 } }, // ACA 재원
+      ];
+
+      // 열 너비
+      ws["!cols"] = [
+        { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 14 }, { wch: 8 },
+        { wch: 9 }, { wch: 8 }, { wch: 9 }, { wch: 10 },
+        { wch: 9 },
+        { wch: 9 }, { wch: 6 }, { wch: 6 }, { wch: 9 }, { wch: 9 },
+        { wch: 6 }, { wch: 6 }, { wch: 7 }, { wch: 6 }, { wch: 9 },
+        { wch: 9 }, { wch: 9 },
+      ];
+
+      XLSX.utils.book_append_sheet(wb, ws, "보고서");
+    } else {
+      const records = filteredInputRecords;
+      if (records.length === 0) return alert("다운로드할 데이터가 없습니다.");
+
+      const headerRow = [
+        "#", "년월", "수익코드",
+        headers.zAdminReason1 || "사유(기조실)", headers.aaAdminReason2 || "종류(기조실)", headers.abAdminDetail || "상세(기조실)",
+        headers.vReason1 || "퇴원사유(분류1)", headers.wReason2 || "퇴원종류(분류2)", headers.xFileLink || "증빙여부", headers.yDetail || "상세내역",
+        "학생명", "학교명", "학년", "마지막출석일", "사유원문",
+        "반형태2", "반명", "시작일", "종료일", "다운일자", "상태",
+      ];
+
+      const dataRows = records.map((r, idx) => [
+        idx + 1, r.colA, r.code,
+        r.zAdminReason1 || "", r.aaAdminReason2 || "", r.abAdminDetail || "",
+        r.vReason1 || "", r.wReason2 || "", r.xFileLink ? "O" : "", r.yDetail || "",
+        r.studentName, r.school, r.grade, r.lastAttend || "", r.reasonOriginal || "",
+        r.classType2, r.className, r.startDate, r.endDate, r.downloadDate,
+        r.status === "closed" ? "마감됨" : "작성가능",
+      ]);
+
+      const ws = XLSX.utils.aoa_to_sheet([headerRow, ...dataRows]);
+      ws["!cols"] = [
+        { wch: 4 }, { wch: 10 }, { wch: 10 },
+        { wch: 14 }, { wch: 14 }, { wch: 20 },
+        { wch: 14 }, { wch: 16 }, { wch: 8 }, { wch: 22 },
+        { wch: 10 }, { wch: 12 }, { wch: 6 }, { wch: 12 }, { wch: 20 },
+        { wch: 8 }, { wch: 14 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 8 },
+      ];
+      XLSX.utils.book_append_sheet(wb, ws, "퇴원사유");
+    }
+
+    const monthLabel = activeTab === "report"
+      ? (reportViewMode === "month" ? reportSelectedMonth : reportSelectedQuarter)
+      : selectedMonth;
+    const fileName = `퇴원데이터_${monthLabel !== "all" ? monthLabel : "전체"}.xlsx`;
+    XLSX.writeFile(wb, fileName);
+  };
+
+
   const handleExportCSV = () => {
     const records = activeTab === "input" ? filteredInputRecords : reportRecords;
     if (records.length === 0) return alert("다운로드할 데이터가 없습니다.");
@@ -564,7 +708,7 @@ export default function EditorDashboard() {
         {/* 전체 버튼 */}
         <button onClick={toggleAllCodes} style={{
           padding: "0.2rem 0.7rem", borderRadius: "999px", fontSize: "0.78rem", cursor: "pointer",
-          border: allSelected ? "1px solid #6366f1" : "1px solid rgba(0,0,0,0.12)",
+          border: allSelected ? "1px solid #8B7355" : "1px solid rgba(0,0,0,0.12)",
           background: allSelected ? "rgba(79,70,229,0.12)" : "transparent",
           color: allSelected ? "#4f46e5" : "var(--text-secondary)",
         }}>전체</button>
@@ -586,7 +730,7 @@ export default function EditorDashboard() {
               {/* 코드 선택 버튼 + 상태 */}
               <button onClick={() => toggleCode(code)} style={{
                 padding: "0.25rem 0.8rem", borderRadius: "999px", fontSize: "0.78rem", cursor: "pointer",
-                border: active ? "1px solid #6366f1" : "1px solid rgba(0,0,0,0.12)",
+                border: active ? "1px solid #8B7355" : "1px solid rgba(0,0,0,0.12)",
                 background: active ? "rgba(79,70,229,0.12)" : "transparent",
                 color: active ? "#4f46e5" : "var(--text-secondary)",
                 display: "flex", alignItems: "center", gap: "0.4rem",
@@ -756,11 +900,66 @@ export default function EditorDashboard() {
     </div>
   );
 
+  // 보고서 합계 계산
+  const reportSummary = useMemo(() => {
+    const sumField = (getter: (r: ReportRecordType) => string) => {
+      const vals = filteredReportRecords.map(r => parseFloat(getter(r))).filter(v => !isNaN(v));
+      return vals.length > 0 ? vals.reduce((a, b) => a + b, 0) : null;
+    };
+    return {
+      finalJaewon: sumField(r => r.finalJaewon),
+      finalDropout: sumField(r => r.finalDropout),
+      acaJaewonEnd: sumField(r => r.acaJaewonEnd),
+      acaNew: sumField(r => r.acaNew),
+      acaDropout: sumField(r => r.acaDropout),
+      exWarn: sumField(r => r.exWarn),
+      exEnd: sumField(r => r.exEnd),
+      exEvent: sumField(r => r.exEvent),
+      exTotal: sumField(r => r.exTotal),
+      acaJaewon: sumField(r => r.acaJaewon),
+      acaJaewonDiff: sumField(r => r.acaJaewonDiff),
+    };
+  }, [filteredReportRecords]);
+
   // TAB 1: 보고서 조회
   // 컬럼 순서: 연월 | 수익코드 사업부 브랜드 캠퍼스 작성자 | 재원(15일) 최종퇴원 최종퇴원율 브랜드평균 | 목표퇴원율
   //           | aca재원(말일) aca신규 aca퇴원 aca퇴원율 aca브랜드평균 | 경고 종강 이벤트 합계 퇴원제외율
   //           | aca재원(15일) 재원제외
   const renderReportTab = () => (
+    <div>
+      {/* 사업부/브랜드/캠퍼스 다중선택 필터 */}
+      {(reportDeptOptions.length > 0 || reportBrandOptions.length > 0 || reportCampusOptions.length > 0) && (
+        <div style={{ padding: "0.6rem 1rem", background: "rgba(0,0,0,0.02)", borderBottom: "1px solid rgba(0,0,0,0.08)", display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+          {reportDeptOptions.length > 0 && (
+            <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", flexWrap: "wrap" }}>
+              <span style={{ fontSize: "0.78rem", color: "var(--text-secondary)", fontWeight: 600, minWidth: "3.5rem" }}>사업부</span>
+              <button onClick={() => setReportSelectedDepts([])} style={{ padding: "0.2rem 0.6rem", borderRadius: "999px", fontSize: "0.75rem", cursor: "pointer", border: reportSelectedDepts.length === 0 ? "1px solid #8B7355" : "1px solid rgba(0,0,0,0.12)", background: reportSelectedDepts.length === 0 ? "rgba(79,70,229,0.12)" : "transparent", color: reportSelectedDepts.length === 0 ? "#4f46e5" : "var(--text-secondary)" }}>전체</button>
+              {reportDeptOptions.map(d => (
+                <button key={d} onClick={() => setReportSelectedDepts(prev => prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d])} style={{ padding: "0.2rem 0.6rem", borderRadius: "999px", fontSize: "0.75rem", cursor: "pointer", border: reportSelectedDepts.includes(d) ? "1px solid #8B7355" : "1px solid rgba(0,0,0,0.12)", background: reportSelectedDepts.includes(d) ? "rgba(79,70,229,0.12)" : "transparent", color: reportSelectedDepts.includes(d) ? "#4f46e5" : "var(--text-secondary)" }}>{d}</button>
+              ))}
+            </div>
+          )}
+          {reportBrandOptions.length > 0 && (
+            <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", flexWrap: "wrap" }}>
+              <span style={{ fontSize: "0.78rem", color: "var(--text-secondary)", fontWeight: 600, minWidth: "3.5rem" }}>브랜드</span>
+              <button onClick={() => setReportSelectedBrands([])} style={{ padding: "0.2rem 0.6rem", borderRadius: "999px", fontSize: "0.75rem", cursor: "pointer", border: reportSelectedBrands.length === 0 ? "1px solid #059669" : "1px solid rgba(0,0,0,0.12)", background: reportSelectedBrands.length === 0 ? "rgba(5,150,105,0.10)" : "transparent", color: reportSelectedBrands.length === 0 ? "#059669" : "var(--text-secondary)" }}>전체</button>
+              {reportBrandOptions.map(b => (
+                <button key={b} onClick={() => setReportSelectedBrands(prev => prev.includes(b) ? prev.filter(x => x !== b) : [...prev, b])} style={{ padding: "0.2rem 0.6rem", borderRadius: "999px", fontSize: "0.75rem", cursor: "pointer", border: reportSelectedBrands.includes(b) ? "1px solid #059669" : "1px solid rgba(0,0,0,0.12)", background: reportSelectedBrands.includes(b) ? "rgba(5,150,105,0.10)" : "transparent", color: reportSelectedBrands.includes(b) ? "#059669" : "var(--text-secondary)" }}>{b}</button>
+              ))}
+            </div>
+          )}
+          {reportCampusOptions.length > 0 && (
+            <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", flexWrap: "wrap" }}>
+              <span style={{ fontSize: "0.78rem", color: "var(--text-secondary)", fontWeight: 600, minWidth: "3.5rem" }}>캠퍼스</span>
+              <button onClick={() => setReportSelectedCampuses([])} style={{ padding: "0.2rem 0.6rem", borderRadius: "999px", fontSize: "0.75rem", cursor: "pointer", border: reportSelectedCampuses.length === 0 ? "1px solid #d97706" : "1px solid rgba(0,0,0,0.12)", background: reportSelectedCampuses.length === 0 ? "rgba(217,119,6,0.10)" : "transparent", color: reportSelectedCampuses.length === 0 ? "#d97706" : "var(--text-secondary)" }}>전체</button>
+              {reportCampusOptions.map(c => (
+                <button key={c} onClick={() => setReportSelectedCampuses(prev => prev.includes(c) ? prev.filter(x => x !== c) : [...prev, c])} style={{ padding: "0.2rem 0.6rem", borderRadius: "999px", fontSize: "0.75rem", cursor: "pointer", border: reportSelectedCampuses.includes(c) ? "1px solid #d97706" : "1px solid rgba(0,0,0,0.12)", background: reportSelectedCampuses.includes(c) ? "rgba(217,119,6,0.10)" : "transparent", color: reportSelectedCampuses.includes(c) ? "#d97706" : "var(--text-secondary)" }}>{c}</button>
+              ))}
+            </div>
+          )}
+          <span style={{ fontSize: "0.78rem", color: "var(--text-secondary)" }}>총 <b style={{ color: "var(--text-primary)" }}>{filteredReportRecords.length}</b>건</span>
+        </div>
+      )}
     <div className="data-table-container" style={{ padding: 0, margin: 0, border: "none" }}>
       <table className="data-table" style={{ fontSize: "0.80rem" }}>
         <thead>
@@ -844,7 +1043,32 @@ export default function EditorDashboard() {
             );
           })}
         </tbody>
+        {filteredReportRecords.length > 0 && (
+          <tfoot>
+            <tr style={{ background: "rgba(0,0,0,0.05)", fontWeight: 700, borderTop: "2px solid rgba(0,0,0,0.15)" }}>
+              <td colSpan={6} style={{ textAlign: "center", color: "var(--text-secondary)", fontSize: "0.78rem", padding: "0.4rem 0.6rem" }}>합계</td>
+              <td style={{ borderLeft: "2px solid #059669" }}>{reportSummary.finalJaewon ?? "-"}</td>
+              <td style={{ color: "#059669" }}>{reportSummary.finalDropout ?? "-"}</td>
+              <td>-</td>
+              <td style={{ borderRight: "1px solid rgba(0,0,0,0.08)" }}>-</td>
+              <td style={{ borderRight: "2px solid #059669" }}>-</td>
+              <td>{reportSummary.acaJaewonEnd ?? "-"}</td>
+              <td>{reportSummary.acaNew ?? "-"}</td>
+              <td>{reportSummary.acaDropout ?? "-"}</td>
+              <td>-</td>
+              <td style={{ borderRight: "1px solid rgba(0,0,0,0.08)" }}>-</td>
+              <td>{reportSummary.exWarn ?? "-"}</td>
+              <td>{reportSummary.exEnd ?? "-"}</td>
+              <td>{reportSummary.exEvent ?? "-"}</td>
+              <td style={{ color: "#d97706" }}>{reportSummary.exTotal ?? "-"}</td>
+              <td style={{ borderRight: "1px solid rgba(0,0,0,0.08)" }}>-</td>
+              <td>{reportSummary.acaJaewon ?? "-"}</td>
+              <td>{reportSummary.acaJaewonDiff ?? "-"}</td>
+            </tr>
+          </tfoot>
+        )}
       </table>
+    </div>
     </div>
   );
 
@@ -974,17 +1198,29 @@ export default function EditorDashboard() {
                   </select>
                 </td>
                 <td>
-                  {r.xFileLink ? (
-                    <a href={r.xFileLink} target="_blank" rel="noreferrer" style={{ color: "#059669" }}>파일 보기</a>
-                  ) : uploadingId === r.id ? (
-                    <span style={{ color: "var(--text-secondary)" }}>업로드 중...</span>
-                  ) : (
-                    <label style={{ cursor: isClosed ? "not-allowed" : "pointer", color: isClosed ? "var(--text-secondary)" : "var(--accent-primary)", fontSize: "0.80rem" }}>
-                      {isClosed ? "첨부불가" : "파일 첨부"}
-                      <input type="file" style={{ display: "none" }} disabled={isClosed}
-                        onChange={(e) => { if (e.target.files?.[0]) handleFileUpload(r.id, e.target.files[0]); }} />
-                    </label>
-                  )}
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.2rem" }}>
+                    {r.xFileLink && r.xFileLink.split("|||").map((link, idx) => (
+                      <div key={idx} style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
+                        <a href={link} target="_blank" rel="noreferrer" style={{ color: "#059669", fontSize: "0.80rem" }}>
+                          파일{idx + 1} 보기
+                        </a>
+                        {!isClosed && (
+                          <button onClick={() => handleFileDelete(r.id, idx)}
+                            style={{ background: "none", border: "none", cursor: "pointer", color: "#dc2626", fontSize: "0.75rem", padding: "0", lineHeight: 1 }}
+                            title="삭제">✕</button>
+                        )}
+                      </div>
+                    ))}
+                    {uploadingId === r.id ? (
+                      <span style={{ color: "var(--text-secondary)", fontSize: "0.80rem" }}>업로드 중...</span>
+                    ) : (
+                      <label style={{ cursor: isClosed ? "not-allowed" : "pointer", color: isClosed ? "var(--text-secondary)" : "var(--accent-primary)", fontSize: "0.80rem" }}>
+                        {isClosed ? "첨부불가" : r.xFileLink ? "추가 첨부" : "파일 첨부"}
+                        <input type="file" style={{ display: "none" }} disabled={isClosed}
+                          onChange={(e) => { if (e.target.files?.[0]) handleFileUpload(r.id, e.target.files[0]); }} />
+                      </label>
+                    )}
+                  </div>
                 </td>
                 <td style={{ borderRight: "1px solid rgba(0,0,0,0.08)" }}>
                   <input type="text" className="input-field" placeholder="상세 내용 기입"
@@ -1076,11 +1312,9 @@ export default function EditorDashboard() {
           {/* 내보내기 그룹 — 관리자/중간관리자/보고서권한자만 표시 */}
           {(userInfo?.role === "admin" || userInfo?.role === "mid_admin" || (userInfo?.reportCodes?.length > 0)) && (
             <div style={{ display: "flex", gap: "0.5rem" }}>
-              <button className="btn-secondary" onClick={handleExportCSV}>
-                엑셀다운(cvs)
-              </button>
-              <button className="btn-secondary" onClick={handlePrintPDF}>
-                인쇄 (PDF 저장)
+              <button className="btn-secondary" onClick={handleExportXLSX}
+                style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
+                📊 엑셀(.xlsx)
               </button>
             </div>
           )}
@@ -1099,7 +1333,8 @@ export default function EditorDashboard() {
         </div>
       </div>
 
-      <div className="tabs-container">
+      {/* 탭 버튼 (사이드바로 대체 - 숨김 처리) */}
+      <div className="tabs-container" style={{ display: "none" }}>
         {(userInfo?.role === "admin" || userInfo?.role === "mid_admin" || (userInfo?.reportCodes?.length > 0)) && (
           <button
             className={`tab-button ${activeTab === "report" ? "active" : ""}`}
@@ -1116,13 +1351,21 @@ export default function EditorDashboard() {
         </button>
       </div>
 
-      <div className="glass-container" style={{ padding: "0" }}>
-        {loading ? (
-          <p style={{ padding: "2rem" }}>데이터를 동기화하는 중입니다...</p>
-        ) : (
-          activeTab === "report" ? renderReportTab() : renderInputTab()
-        )}
-      </div>
+      {activeTab === "final-placeholder" ? (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "60vh", flexDirection: "column", gap: "1rem", color: "var(--text-secondary)" }}>
+          <span style={{ fontSize: "2.5rem", opacity: 0.3 }}>📋</span>
+          <p style={{ fontSize: "0.95rem", fontWeight: 600 }}>연결 준비 중입니다.</p>
+          <p style={{ fontSize: "0.83rem", opacity: 0.7 }}>데이터 연결 방식 업로드 후 표시됩니다.</p>
+        </div>
+      ) : (
+        <div className="glass-container" style={{ padding: "0" }}>
+          {loading ? (
+            <p style={{ padding: "2rem" }}>데이터를 동기화하는 중입니다...</p>
+          ) : (
+            activeTab === "report" ? renderReportTab() : renderInputTab()
+          )}
+        </div>
+      )}
 
       <ChatbotOverlay />
 
@@ -1214,5 +1457,13 @@ export default function EditorDashboard() {
         </div>
       )}
     </>
+  );
+}
+
+export default function EditorDashboard() {
+  return (
+    <Suspense fallback={null}>
+      <EditorDashboardInner />
+    </Suspense>
   );
 }

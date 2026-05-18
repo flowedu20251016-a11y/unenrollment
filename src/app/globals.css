@@ -1,21 +1,28 @@
 /* globals.css - 베이지 라이트 테마 */
 :root {
-  --bg-primary: #faf8f4;
-  --bg-secondary: #f2ece2;
-  --text-primary: #1c1917;
-  --text-secondary: #78716c;
+  --bg-primary: #FAF7F2;
+  --bg-secondary: #ECE7DF;
+  --text-primary: #222222;
+  --text-secondary: #8B8175;
   --accent-primary: #121212;
   --accent-hover: #4338ca;
   --danger: #dc2626;
   --success: #059669;
-  --border-color: rgba(0, 0, 0, 0.08);
-  --glass-bg: rgba(250, 248, 244, 0.92);
-  --glass-border: rgba(0, 0, 0, 0.06);
+  --border-color: #E7E0D6;
+  --card-bg: #FFFFFF;
+  --card-border: #E7E0D6;
+  --chart-bg: #ECE7DF;
+  --glass-bg: rgba(245, 241, 234, 0.92);
+  --glass-border: #E7E0D6;
 
-  --font-family: "DM Sans", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+  --font-family: "Pretendard", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
   --radius-md: 10px;
   --radius-lg: 14px;
   --transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+html {
+  font-size: 18px; /* 전체 글씨 크기 기준 — 여기 숫자만 바꾸면 전체 적용 */
 }
 
 * {
@@ -60,9 +67,9 @@ p { color: var(--text-secondary); line-height: 1.6; }
 }
 
 .btn-primary {
-  background: var(--accent-primary);
-  color: #fff;
-  border: none;
+  background: transparent;
+  color: #8E7E6B;
+  border: 1.5px solid #8E7E6B;
   padding: 0.75rem 1.5rem;
   border-radius: var(--radius-md);
   font-weight: 600;
@@ -76,9 +83,8 @@ p { color: var(--text-secondary); line-height: 1.6; }
 }
 
 .btn-primary:hover {
-  background: var(--accent-hover);
+  background: rgba(142, 126, 107, 0.1);
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.25);
 }
 
 .input-field {

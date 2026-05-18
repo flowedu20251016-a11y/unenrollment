@@ -359,7 +359,7 @@ export default function ChatbotOverlay() {
             <button
               onClick={handleSearch}
               style={{
-                background: "var(--accent-primary, #6366f1)",
+                background: "var(--accent-primary, #8B7355)",
                 border: "none",
                 borderRadius: "8px",
                 padding: "0 1rem",
@@ -377,7 +377,7 @@ export default function ChatbotOverlay() {
           onClick={() => setIsOpen(true)}
           style={{
             width: "60px", height: "60px", borderRadius: "30px",
-            background: "var(--accent-primary, #6366f1)", border: "none",
+            background: "var(--accent-primary, #8B7355)", border: "none",
             color: "#fff", fontSize: "1.5rem", cursor: "pointer",
             boxShadow: "0 5px 20px rgba(99,102,241,0.5)",
             display: "flex", justifyContent: "center", alignItems: "center",

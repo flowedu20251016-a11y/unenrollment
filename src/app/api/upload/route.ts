@@ -33,12 +33,20 @@ export async function POST(request: Request) {
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
-    const code = sanitizePath(formData.get("code") as string || "unknown");
-    const studentName = sanitizePath(formData.get("studentName") as string || "unknown");
-    const month = sanitizePath(formData.get("month") as string || "unknown");
     const ext = (file.name.includes(".") ? file.name.split(".").pop() : "bin") || "bin";
 
-    const fileName = `${code}/${code}_${studentName}_${month}_${Date.now()}.${ext}`;
+    // folder 파라미터가 있으면 해당 폴더에, 없으면 기존 퇴원생 경로 사용
+    const folder = formData.get("folder") as string | null;
+    let fileName: string;
+    if (folder) {
+      const safeName = sanitizePath(file.name.replace(/\.[^/.]+$/, "")) || "file";
+      fileName = `${folder}/${safeName}_${Date.now()}.${ext}`;
+    } else {
+      const code = sanitizePath(formData.get("code") as string || "unknown");
+      const studentName = sanitizePath(formData.get("studentName") as string || "unknown");
+      const month = sanitizePath(formData.get("month") as string || "unknown");
+      fileName = `${code}/${code}_${studentName}_${month}_${Date.now()}.${ext}`;
+    }
     console.log("[Upload] fileName:", fileName);
 
     const { error } = await supabase.storage

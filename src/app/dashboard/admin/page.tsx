@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, useMemo, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
 interface InputRecordType {
   id: string; rowIndex: number;
@@ -17,13 +17,35 @@ interface CategoryOptions {
   requireProof: boolean;
 }
 
-export default function AdminDashboard() {
+interface ReportRecordType {
+  id: string; rowIndex: number; month: string; code: string; department: string; brand: string; campus: string; manager: string;
+  finalJaewon: string; finalDropout: string; finalRate: string; finalBrandAvg: string; targetRate: string;
+  acaNew: string; acaDropout: string; acaHold: string; acaJaewon: string; acaJaewonEnd: string; acaJaewonDiff: string;
+  acaRealDropout: string; acaRealRate: string; acaBrandAvg: string;
+  exWarn: string; exEnd: string; exEvent: string; exTotal: string; exRate: string; status: string;
+}
+
+function AdminDashboardInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [records, setRecords] = useState<InputRecordType[]>([]);
   const [headers, setHeaders] = useState<any>({});
   const [categories, setCategories] = useState<Record<string, CategoryOptions[]>>({});
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"live" | "closed" | "accumulated">("live");
+  const [activeTab, setActiveTab] = useState<"live" | "closed" | "accumulated" | "report">("report");
+
+  // 보고서 탭 데이터
+  const [reportRecords, setReportRecords] = useState<ReportRecordType[]>([]);
+  const [accReportRecords, setAccReportRecords] = useState<ReportRecordType[]>([]);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportLoaded, setReportLoaded] = useState(false);
+
+  // 보고서 탭 필터
+  const [reportSelectedMonth, setReportSelectedMonth] = useState("all");
+  const [reportSelectedCode, setReportSelectedCode] = useState("all");
+  const [reportSelectedDepts, setReportSelectedDepts] = useState<string[]>([]);
+  const [reportSelectedBrands, setReportSelectedBrands] = useState<string[]>([]);
+  const [reportSelectedCampuses, setReportSelectedCampuses] = useState<string[]>([]);
 
   // 실시간 탭 필터
   const [selectedMonth, setSelectedMonth] = useState<string>("all");
@@ -58,7 +80,35 @@ export default function AdminDashboard() {
     const user = JSON.parse(sessionStr);
     if (user.role !== "admin") { alert("기조실 권한이 없습니다."); router.push("/dashboard/editor"); return; }
     fetchRecords();
+    fetchReportData();
   }, []);
+
+  // 사이드바 section 파라미터 → 탭 전환
+  useEffect(() => {
+    const s = searchParams?.get("section");
+    if (s === "live") setActiveTab("live");
+    else if (s === "closed") setActiveTab("closed");
+    else if (s === "accumulated") setActiveTab("accumulated");
+    else if (s === "report") setActiveTab("report");
+  }, [searchParams]);
+
+  // accumulated 탭 진입 시 데이터 lazy load
+  useEffect(() => {
+    if (activeTab === "accumulated" && !accLoaded) fetchAccumulatedData();
+  }, [activeTab]);
+
+  const fetchReportData = () => {
+    setReportLoading(true);
+    Promise.all([
+      fetch("/api/records", { cache: "no-store" }).then(r => r.json()),
+      fetch("/api/records?tab=누적보고서", { cache: "no-store" }).then(r => r.json()),
+    ]).then(([cur, acc]) => {
+      setReportRecords(cur.records || []);
+      setAccReportRecords(acc.records || []);
+      setReportLoaded(true);
+      setReportLoading(false);
+    });
+  };
 
   const fetchAccumulatedData = () => {
     setAccLoading(true);
@@ -80,6 +130,60 @@ export default function AdminDashboard() {
     () => accMonth === "all" ? accInputRecords : accInputRecords.filter(r => r.colA === accMonth),
     [accInputRecords, accMonth]
   );
+
+  // ── 보고서 탭 ──
+  const allReportRecords = useMemo(() => {
+    const accMonths = new Set(accReportRecords.map(r => r.month).filter(Boolean));
+    return [
+      ...accReportRecords,
+      ...reportRecords.filter(r => !accMonths.has(r.month)),
+    ];
+  }, [reportRecords, accReportRecords]);
+
+  const reportMonthOptions = useMemo(
+    () => Array.from(new Set(allReportRecords.map(r => r.month).filter(Boolean))).sort().reverse() as string[],
+    [allReportRecords]
+  );
+
+  const reportCodeOptions = useMemo(
+    () => Array.from(new Set(allReportRecords.map(r => r.code).filter(Boolean))).sort() as string[],
+    [allReportRecords]
+  );
+
+  const reportDeptOptions = useMemo(() => Array.from(new Set(allReportRecords.map(r => r.department).filter(Boolean))).sort() as string[], [allReportRecords]);
+  const reportBrandOptions = useMemo(() => Array.from(new Set(allReportRecords.map(r => r.brand).filter(Boolean))).sort() as string[], [allReportRecords]);
+  const reportCampusOptions = useMemo(() => Array.from(new Set(allReportRecords.map(r => r.campus).filter(Boolean))).sort() as string[], [allReportRecords]);
+
+  const filteredReportRecords = useMemo(() => {
+    return allReportRecords.filter(r => {
+      if (reportSelectedMonth !== "all" && r.month !== reportSelectedMonth) return false;
+      if (reportSelectedCode !== "all" && r.code !== reportSelectedCode) return false;
+      if (reportSelectedDepts.length > 0 && !reportSelectedDepts.includes(r.department)) return false;
+      if (reportSelectedBrands.length > 0 && !reportSelectedBrands.includes(r.brand)) return false;
+      if (reportSelectedCampuses.length > 0 && !reportSelectedCampuses.includes(r.campus)) return false;
+      return true;
+    });
+  }, [allReportRecords, reportSelectedMonth, reportSelectedCode, reportSelectedDepts, reportSelectedBrands, reportSelectedCampuses]);
+
+  const reportSummary = useMemo(() => {
+    const sumField = (getter: (r: ReportRecordType) => string) => {
+      const vals = filteredReportRecords.map(r => parseFloat(getter(r))).filter(v => !isNaN(v));
+      return vals.length > 0 ? vals.reduce((a, b) => a + b, 0) : null;
+    };
+    return {
+      finalJaewon: sumField(r => r.finalJaewon),
+      finalDropout: sumField(r => r.finalDropout),
+      acaJaewonEnd: sumField(r => r.acaJaewonEnd),
+      acaNew: sumField(r => r.acaNew),
+      acaDropout: sumField(r => r.acaDropout),
+      exWarn: sumField(r => r.exWarn),
+      exEnd: sumField(r => r.exEnd),
+      exEvent: sumField(r => r.exEvent),
+      exTotal: sumField(r => r.exTotal),
+      acaJaewon: sumField(r => r.acaJaewon),
+      acaJaewonDiff: sumField(r => r.acaJaewonDiff),
+    };
+  }, [filteredReportRecords]);
 
   // ── 공통 옵션 ──
   const monthOptions = useMemo(
@@ -212,8 +316,8 @@ export default function AdminDashboard() {
         <p>사업부 작성 데이터 확인 및 관리</p>
       </div>
 
-      {/* 탭 버튼 */}
-      <div className="tabs-container" style={{ marginBottom: "1rem" }}>
+      {/* 탭 버튼 (사이드바로 대체 - 숨김 처리) */}
+      <div className="tabs-container" style={{ marginBottom: "1rem", display: "none" }}>
         <button className={`tab-button ${activeTab === "live" ? "active" : ""}`} onClick={() => setActiveTab("live")}>
           📋 실시간 작성 현황
         </button>
@@ -222,6 +326,9 @@ export default function AdminDashboard() {
         </button>
         <button className={`tab-button ${activeTab === "accumulated" ? "active" : ""}`} onClick={() => { setActiveTab("accumulated"); if (!accLoaded) fetchAccumulatedData(); }}>
           📦 누적 데이터
+        </button>
+        <button className={`tab-button ${activeTab === "report" ? "active" : ""}`} onClick={() => { setActiveTab("report"); if (!reportLoaded) fetchReportData(); }}>
+          📊 보고서 조회
         </button>
       </div>
 
@@ -278,7 +385,7 @@ export default function AdminDashboard() {
             <span style={{ fontSize: "0.82rem", color: "var(--text-secondary)", fontWeight: 600 }}>수익코드:</span>
             <button onClick={toggleAllCodes} style={{
               padding: "0.25rem 0.8rem", borderRadius: "999px", fontSize: "0.78rem", cursor: "pointer",
-              border: allSelected ? "1px solid #6366f1" : "1px solid rgba(0,0,0,0.12)",
+              border: allSelected ? "1px solid #8B7355" : "1px solid rgba(0,0,0,0.12)",
               background: allSelected ? "rgba(79,70,229,0.12)" : "transparent",
               color: allSelected ? "#4f46e5" : "var(--text-secondary)",
             }}>전체</button>
@@ -295,7 +402,7 @@ export default function AdminDashboard() {
                 <div key={code} style={{ display: "flex", alignItems: "center", gap: "0.25rem" }}>
                   <button onClick={() => toggleCode(code)} style={{
                     padding: "0.25rem 0.9rem", borderRadius: "999px", fontSize: "0.78rem", cursor: "pointer",
-                    border: active ? "1px solid #6366f1" : "1px solid rgba(0,0,0,0.12)",
+                    border: active ? "1px solid #8B7355" : "1px solid rgba(0,0,0,0.12)",
                     background: active ? "rgba(79,70,229,0.12)" : "transparent",
                     color: active ? "#4f46e5" : "var(--text-secondary)",
                     display: "flex", alignItems: "center", gap: "0.4rem",
@@ -430,6 +537,13 @@ export default function AdminDashboard() {
           TAB 2: 마감완료 내역
       ══════════════════════════════════════ */}
       {activeTab === "closed" && (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "60vh", flexDirection: "column", gap: "1rem", color: "var(--text-secondary)" }}>
+          <span style={{ fontSize: "2.5rem", opacity: 0.3 }}>📋</span>
+          <p style={{ fontSize: "0.95rem", fontWeight: 600 }}>연결 준비 중입니다.</p>
+          <p style={{ fontSize: "0.83rem", opacity: 0.7 }}>데이터 연결 방식 업로드 후 표시됩니다.</p>
+        </div>
+      )}
+      {false && activeTab === "closed_hidden" && (
         <>
           {/* 필터 */}
           <div style={{ display: "flex", gap: "0.75rem", alignItems: "center", flexWrap: "wrap", marginBottom: "0.75rem", background: "rgba(0,0,0,0.02)", padding: "0.75rem 1rem", borderRadius: "8px" }}>
@@ -511,9 +625,182 @@ export default function AdminDashboard() {
       )}
 
       {/* ══════════════════════════════════════
+          TAB 4: 보고서 조회
+      ══════════════════════════════════════ */}
+      {activeTab === "report" && (
+        <>
+          {/* 필터 */}
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", marginBottom: "0.75rem", background: "rgba(0,0,0,0.02)", padding: "0.75rem 1rem", borderRadius: "8px" }}>
+            <div style={{ display: "flex", gap: "0.75rem", alignItems: "center", flexWrap: "wrap" }}>
+              <span style={{ fontSize: "0.85rem", color: "var(--text-secondary)", fontWeight: 600 }}>🔍 필터:</span>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>📅 월</span>
+                <select className="filter-select" value={reportSelectedMonth} onChange={e => setReportSelectedMonth(e.target.value)}>
+                  <option value="all">전체</option>
+                  {reportMonthOptions.map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>수익코드</span>
+                <select className="filter-select" value={reportSelectedCode} onChange={e => setReportSelectedCode(e.target.value)}>
+                  <option value="all">전체</option>
+                  {reportCodeOptions.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>
+                총 <b style={{ color: "var(--text-primary)" }}>{filteredReportRecords.length}</b>건
+              </span>
+            </div>
+            {reportDeptOptions.length > 0 && (
+              <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", flexWrap: "wrap" }}>
+                <span style={{ fontSize: "0.78rem", color: "var(--text-secondary)", fontWeight: 600, minWidth: "3.5rem" }}>사업부</span>
+                <button onClick={() => setReportSelectedDepts([])} style={{ padding: "0.2rem 0.6rem", borderRadius: "999px", fontSize: "0.75rem", cursor: "pointer", border: reportSelectedDepts.length === 0 ? "1px solid #8B7355" : "1px solid rgba(0,0,0,0.12)", background: reportSelectedDepts.length === 0 ? "rgba(79,70,229,0.12)" : "transparent", color: reportSelectedDepts.length === 0 ? "#4f46e5" : "var(--text-secondary)" }}>전체</button>
+                {reportDeptOptions.map(d => (
+                  <button key={d} onClick={() => setReportSelectedDepts(prev => prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d])} style={{ padding: "0.2rem 0.6rem", borderRadius: "999px", fontSize: "0.75rem", cursor: "pointer", border: reportSelectedDepts.includes(d) ? "1px solid #8B7355" : "1px solid rgba(0,0,0,0.12)", background: reportSelectedDepts.includes(d) ? "rgba(79,70,229,0.12)" : "transparent", color: reportSelectedDepts.includes(d) ? "#4f46e5" : "var(--text-secondary)" }}>{d}</button>
+                ))}
+              </div>
+            )}
+            {reportBrandOptions.length > 0 && (
+              <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", flexWrap: "wrap" }}>
+                <span style={{ fontSize: "0.78rem", color: "var(--text-secondary)", fontWeight: 600, minWidth: "3.5rem" }}>브랜드</span>
+                <button onClick={() => setReportSelectedBrands([])} style={{ padding: "0.2rem 0.6rem", borderRadius: "999px", fontSize: "0.75rem", cursor: "pointer", border: reportSelectedBrands.length === 0 ? "1px solid #059669" : "1px solid rgba(0,0,0,0.12)", background: reportSelectedBrands.length === 0 ? "rgba(5,150,105,0.10)" : "transparent", color: reportSelectedBrands.length === 0 ? "#059669" : "var(--text-secondary)" }}>전체</button>
+                {reportBrandOptions.map(b => (
+                  <button key={b} onClick={() => setReportSelectedBrands(prev => prev.includes(b) ? prev.filter(x => x !== b) : [...prev, b])} style={{ padding: "0.2rem 0.6rem", borderRadius: "999px", fontSize: "0.75rem", cursor: "pointer", border: reportSelectedBrands.includes(b) ? "1px solid #059669" : "1px solid rgba(0,0,0,0.12)", background: reportSelectedBrands.includes(b) ? "rgba(5,150,105,0.10)" : "transparent", color: reportSelectedBrands.includes(b) ? "#059669" : "var(--text-secondary)" }}>{b}</button>
+                ))}
+              </div>
+            )}
+            {reportCampusOptions.length > 0 && (
+              <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", flexWrap: "wrap" }}>
+                <span style={{ fontSize: "0.78rem", color: "var(--text-secondary)", fontWeight: 600, minWidth: "3.5rem" }}>캠퍼스</span>
+                <button onClick={() => setReportSelectedCampuses([])} style={{ padding: "0.2rem 0.6rem", borderRadius: "999px", fontSize: "0.75rem", cursor: "pointer", border: reportSelectedCampuses.length === 0 ? "1px solid #d97706" : "1px solid rgba(0,0,0,0.12)", background: reportSelectedCampuses.length === 0 ? "rgba(217,119,6,0.10)" : "transparent", color: reportSelectedCampuses.length === 0 ? "#d97706" : "var(--text-secondary)" }}>전체</button>
+                {reportCampusOptions.map(c => (
+                  <button key={c} onClick={() => setReportSelectedCampuses(prev => prev.includes(c) ? prev.filter(x => x !== c) : [...prev, c])} style={{ padding: "0.2rem 0.6rem", borderRadius: "999px", fontSize: "0.75rem", cursor: "pointer", border: reportSelectedCampuses.includes(c) ? "1px solid #d97706" : "1px solid rgba(0,0,0,0.12)", background: reportSelectedCampuses.includes(c) ? "rgba(217,119,6,0.10)" : "transparent", color: reportSelectedCampuses.includes(c) ? "#d97706" : "var(--text-secondary)" }}>{c}</button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="glass-container" style={{ padding: 0 }}>
+            {reportLoading ? <p style={{ padding: "2rem" }}>동기화 중...</p> : (
+              <div className="data-table-container">
+                <table className="data-table" style={{ fontSize: "0.80rem" }}>
+                  <thead>
+                    <tr>
+                      <th rowSpan={2} style={{ background: "rgba(0,0,0,0.04)", whiteSpace: "nowrap" }}>연월</th>
+                      <th rowSpan={2} style={{ background: "rgba(0,0,0,0.04)", fontWeight: "bold" }}>수익코드</th>
+                      <th rowSpan={2} style={{ background: "rgba(0,0,0,0.04)" }}>사업부</th>
+                      <th rowSpan={2} style={{ background: "rgba(0,0,0,0.04)" }}>브랜드</th>
+                      <th rowSpan={2} style={{ background: "rgba(0,0,0,0.04)" }}>캠퍼스</th>
+                      <th rowSpan={2} style={{ background: "rgba(0,0,0,0.04)", borderRight: "1px solid rgba(0,0,0,0.08)" }}>작성자</th>
+                      <th colSpan={4} style={{ backgroundImage: "linear-gradient(rgba(5,150,105,0.12), rgba(5,150,105,0.12))", color: "#059669", borderTop: "2px solid #059669", borderLeft: "2px solid #059669" }}>최종퇴원율</th>
+                      <th rowSpan={2} style={{ backgroundImage: "linear-gradient(rgba(37,99,235,0.10), rgba(37,99,235,0.10))", color: "#2563eb", whiteSpace: "nowrap", borderTop: "2px solid #059669", borderRight: "2px solid #059669" }}>목표퇴원율</th>
+                      <th colSpan={5} style={{ background: "rgba(0,0,0,0.03)", borderRight: "1px solid rgba(0,0,0,0.08)" }}>ACA</th>
+                      <th colSpan={5} style={{ backgroundImage: "linear-gradient(rgba(245,158,11,0.15), rgba(245,158,11,0.15))", color: "#d97706", borderRight: "1px solid rgba(0,0,0,0.08)" }}>경고·종강·이벤트</th>
+                      <th colSpan={2} style={{ background: "rgba(0,0,0,0.03)" }}>ACA 재원</th>
+                    </tr>
+                    <tr>
+                      <th style={{ backgroundImage: "linear-gradient(rgba(5,150,105,0.06), rgba(5,150,105,0.06))", color: "var(--text-secondary)", whiteSpace: "nowrap", borderLeft: "2px solid #059669" }}>재원(15일)</th>
+                      <th style={{ backgroundImage: "linear-gradient(rgba(5,150,105,0.06), rgba(5,150,105,0.06))", color: "var(--text-secondary)" }}>최종퇴원</th>
+                      <th style={{ backgroundImage: "linear-gradient(rgba(5,150,105,0.06), rgba(5,150,105,0.06))", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>퇴원율(%)</th>
+                      <th style={{ backgroundImage: "linear-gradient(rgba(5,150,105,0.06), rgba(5,150,105,0.06))", color: "var(--text-secondary)", borderRight: "1px solid rgba(0,0,0,0.08)", whiteSpace: "nowrap" }}>브랜드평균(%)</th>
+                      <th style={{ background: "rgba(0,0,0,0.02)", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>재원(말일)</th>
+                      <th style={{ background: "rgba(0,0,0,0.02)", color: "var(--text-secondary)" }}>신규</th>
+                      <th style={{ background: "rgba(0,0,0,0.02)", color: "var(--text-secondary)" }}>퇴원</th>
+                      <th style={{ background: "rgba(0,0,0,0.02)", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>퇴원율(%)</th>
+                      <th style={{ background: "rgba(0,0,0,0.02)", color: "var(--text-secondary)", borderRight: "1px solid rgba(0,0,0,0.08)", whiteSpace: "nowrap" }}>브랜드평균</th>
+                      <th style={{ backgroundImage: "linear-gradient(rgba(245,158,11,0.08), rgba(245,158,11,0.08))", color: "var(--text-secondary)" }}>경고</th>
+                      <th style={{ backgroundImage: "linear-gradient(rgba(245,158,11,0.08), rgba(245,158,11,0.08))", color: "var(--text-secondary)" }}>종강</th>
+                      <th style={{ backgroundImage: "linear-gradient(rgba(245,158,11,0.08), rgba(245,158,11,0.08))", color: "var(--text-secondary)" }}>이벤트</th>
+                      <th style={{ backgroundImage: "linear-gradient(rgba(245,158,11,0.10), rgba(245,158,11,0.10))", color: "var(--text-secondary)" }}>합계</th>
+                      <th style={{ backgroundImage: "linear-gradient(rgba(245,158,11,0.08), rgba(245,158,11,0.08))", color: "var(--text-secondary)", borderRight: "1px solid rgba(0,0,0,0.08)", whiteSpace: "nowrap" }}>제외율(%)</th>
+                      <th style={{ background: "rgba(0,0,0,0.02)", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>재원(15일)</th>
+                      <th style={{ background: "rgba(0,0,0,0.02)", color: "var(--text-secondary)" }}>재원제외</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredReportRecords.length === 0
+                      ? <tr><td colSpan={22} style={{ textAlign: "center", padding: "3rem", opacity: 0.5 }}>보고서 데이터가 없습니다.</td></tr>
+                      : filteredReportRecords.map(r => {
+                          const finalRateNum = parseFloat(r.finalRate);
+                          const targetRateNum = parseFloat(r.targetRate);
+                          const isOverTarget = !isNaN(finalRateNum) && !isNaN(targetRateNum) && finalRateNum > targetRateNum;
+                          return (
+                            <tr key={r.id}>
+                              <td style={{ color: "var(--text-secondary)", whiteSpace: "nowrap" }}>{r.month}</td>
+                              <td style={{ color: "var(--text-primary)", fontWeight: "bold" }}>{r.code}</td>
+                              <td style={{ color: "var(--text-secondary)" }}>{r.department}</td>
+                              <td style={{ color: "var(--text-secondary)" }}>{r.brand}</td>
+                              <td style={{ color: "var(--text-secondary)" }}>{r.campus}</td>
+                              <td style={{ color: "var(--text-secondary)", borderRight: "1px solid rgba(0,0,0,0.08)" }}>{r.manager}</td>
+                              <td style={{ borderLeft: "2px solid #059669" }}>{r.finalJaewon}</td>
+                              <td style={{ color: "#059669", fontWeight: "bold" }}>{r.finalDropout}</td>
+                              <td style={{
+                                color: isOverTarget ? "#fff" : "var(--danger)",
+                                fontWeight: "bold",
+                                background: isOverTarget ? "#dc2626" : undefined,
+                                borderRadius: isOverTarget ? "4px" : undefined,
+                              }}>{r.finalRate}</td>
+                              <td style={{ color: "var(--text-secondary)", borderRight: "1px solid rgba(0,0,0,0.08)" }}>{r.finalBrandAvg}</td>
+                              <td style={{ color: "#2563eb", fontWeight: "bold", borderRight: "2px solid #059669" }}>{r.targetRate}</td>
+                              <td style={{ color: "var(--text-secondary)" }}>{r.acaJaewonEnd}</td>
+                              <td style={{ color: "var(--text-secondary)" }}>{r.acaNew}</td>
+                              <td style={{ color: "var(--text-secondary)" }}>{r.acaDropout}</td>
+                              <td style={{ color: "var(--text-secondary)" }}>{r.acaRealRate}</td>
+                              <td style={{ color: "var(--text-secondary)", borderRight: "1px solid rgba(0,0,0,0.08)" }}>{r.acaBrandAvg}</td>
+                              <td style={{ color: "var(--text-secondary)" }}>{r.exWarn}</td>
+                              <td style={{ color: "var(--text-secondary)" }}>{r.exEnd}</td>
+                              <td style={{ color: "var(--text-secondary)" }}>{r.exEvent}</td>
+                              <td style={{ color: "#d97706", fontWeight: "bold" }}>{r.exTotal}</td>
+                              <td style={{ color: "var(--text-secondary)", borderRight: "1px solid rgba(0,0,0,0.08)" }}>{r.exRate}</td>
+                              <td style={{ color: "var(--text-secondary)" }}>{r.acaJaewon}</td>
+                              <td style={{ color: "var(--text-secondary)" }}>{r.acaJaewonDiff}</td>
+                            </tr>
+                          );
+                        })
+                    }
+                  </tbody>
+                  {filteredReportRecords.length > 0 && (
+                    <tfoot>
+                      <tr style={{ background: "rgba(0,0,0,0.05)", fontWeight: 700, borderTop: "2px solid rgba(0,0,0,0.15)" }}>
+                        <td colSpan={6} style={{ textAlign: "center", color: "var(--text-secondary)", fontSize: "0.78rem", padding: "0.4rem 0.6rem" }}>합계</td>
+                        <td style={{ borderLeft: "2px solid #059669" }}>{reportSummary.finalJaewon ?? "-"}</td>
+                        <td style={{ color: "#059669" }}>{reportSummary.finalDropout ?? "-"}</td>
+                        <td>-</td>
+                        <td style={{ borderRight: "1px solid rgba(0,0,0,0.08)" }}>-</td>
+                        <td style={{ borderRight: "2px solid #059669" }}>-</td>
+                        <td>{reportSummary.acaJaewonEnd ?? "-"}</td>
+                        <td>{reportSummary.acaNew ?? "-"}</td>
+                        <td>{reportSummary.acaDropout ?? "-"}</td>
+                        <td>-</td>
+                        <td style={{ borderRight: "1px solid rgba(0,0,0,0.08)" }}>-</td>
+                        <td>{reportSummary.exWarn ?? "-"}</td>
+                        <td>{reportSummary.exEnd ?? "-"}</td>
+                        <td>{reportSummary.exEvent ?? "-"}</td>
+                        <td style={{ color: "#d97706" }}>{reportSummary.exTotal ?? "-"}</td>
+                        <td style={{ borderRight: "1px solid rgba(0,0,0,0.08)" }}>-</td>
+                        <td>{reportSummary.acaJaewon ?? "-"}</td>
+                        <td>{reportSummary.acaJaewonDiff ?? "-"}</td>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* ══════════════════════════════════════
           TAB 3: 누적 데이터
       ══════════════════════════════════════ */}
       {activeTab === "accumulated" && (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "60vh", flexDirection: "column", gap: "1rem", color: "var(--text-secondary)" }}>
+          <span style={{ fontSize: "2.5rem", opacity: 0.3 }}>📊</span>
+          <p style={{ fontSize: "0.95rem", fontWeight: 600 }}>연결 준비 중입니다.</p>
+          <p style={{ fontSize: "0.83rem", opacity: 0.7 }}>데이터 연결 방식 업로드 후 표시됩니다.</p>
+        </div>
+      )}
+      {false && activeTab === "accumulated_hidden" && (
         <>
           {/* 월 선택 */}
           <div style={{ display: "flex", gap: "0.75rem", alignItems: "center", flexWrap: "wrap", marginBottom: "0.75rem", background: "rgba(0,0,0,0.02)", padding: "0.75rem 1rem", borderRadius: "8px" }}>
@@ -575,5 +862,13 @@ export default function AdminDashboard() {
         </>
       )}
     </>
+  );
+}
+
+export default function AdminDashboard() {
+  return (
+    <Suspense fallback={null}>
+      <AdminDashboardInner />
+    </Suspense>
   );
 }

@@ -4,6 +4,12 @@
   min-height: 100vh;
 }
 
+/* 아웃라인 버튼 전역 hover */
+button[style*="8E7E6B"]:hover,
+a[style*="8E7E6B"]:hover {
+  background: rgba(142, 126, 107, 0.1) !important;
+}
+
 .dashboard-header {
   padding: 0.875rem 2rem;
   border-radius: 0;
@@ -125,9 +131,9 @@
 }
 
 .data-table th {
-  background: #f0ebe0;
+  background: #ECE7DF;
   font-weight: 600;
-  color: #5c534a;
+  color: #8B8175;
   font-size: 0.8rem;
   position: sticky;
   top: 0;
@@ -142,7 +148,7 @@
 
 /* 스크롤 시 내용이 비치지 않도록 thead th 배경을 항상 불투명하게 */
 .data-table thead th {
-  background-color: #f0ebe0 !important;
+  background-color: #ECE7DF !important;
 }
 
 .data-table tbody tr:hover td {
@@ -184,4 +190,285 @@
   background: rgba(79, 70, 229, 0.1);
   color: #3730a3;
   border: 1px solid rgba(79, 70, 229, 0.2);
+}
+
+/* ─── Dashboard Body (sidebar + content row) ─── */
+.dashboard-body {
+  display: flex;
+  flex: 1;
+  align-items: flex-start;
+  min-height: calc(100vh - 64px);
+}
+
+.dashboard-body .dashboard-main {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  max-width: none;
+}
+
+/* ─── Sidebar ─── */
+.sidebar {
+  width: 240px;
+  background: #ECE7DF;
+  border-right: 1px solid #E7E0D6;
+  position: sticky;
+  top: 64px;
+  height: calc(100vh - 64px);
+  overflow: hidden;
+  overflow-y: auto;
+  transition: width 0.25s ease;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  z-index: 40;
+  box-shadow: 1px 0 4px rgba(0,0,0,0.04);
+}
+
+.sidebar.collapsed {
+  width: 60px;
+  overflow: visible;
+}
+
+.sidebar-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0.7rem 0.75rem 0.6rem;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.07);
+  flex-shrink: 0;
+}
+
+.sidebar-toggle-btn {
+  background: none;
+  border: none;
+  color: #555;
+  cursor: pointer;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  font-size: 1.1rem;
+  transition: background 0.15s, color 0.15s;
+  font-family: inherit;
+}
+
+.sidebar-toggle-btn:hover {
+  background: rgba(0, 0, 0, 0.08);
+  color: #111;
+}
+
+.sidebar-nav {
+  flex: 1;
+  padding: 0.5rem 0;
+  overflow-x: hidden;
+}
+
+.sidebar.collapsed .sidebar-nav {
+  overflow: visible;
+}
+
+.sidebar-menu-group {
+  position: relative;
+}
+
+.sidebar-menu-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.72rem 1rem;
+  background: none;
+  border: none;
+  color: #444;
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-align: left;
+  transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+  overflow: hidden;
+  font-family: inherit;
+  letter-spacing: -0.01em;
+}
+
+.sidebar-menu-btn:hover {
+  background: rgba(0, 0, 0, 0.04);
+  color: #111;
+}
+
+.sidebar-menu-btn.has-active {
+  color: #111;
+}
+
+.sidebar-menu-icon {
+  font-size: 1rem;
+  min-width: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.sidebar-menu-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sidebar-menu-arrow {
+  font-size: 0.7rem;
+  transition: transform 0.2s;
+  flex-shrink: 0;
+  opacity: 0.5;
+  color: #666;
+}
+
+.sidebar-menu-arrow.open {
+  transform: rotate(180deg);
+}
+
+/* Accordion submenu */
+.sidebar-submenu {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.22s ease;
+}
+
+.sidebar-submenu.open {
+  max-height: 200px;
+}
+
+.sidebar-sub-item {
+  display: flex;
+  align-items: center;
+  padding: 0.52rem 1rem 0.52rem 2.75rem;
+  color: #666;
+  font-size: 0.83rem;
+  text-decoration: none;
+  transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.sidebar-sub-item:hover {
+  background: rgba(0, 0, 0, 0.04);
+  color: #111;
+}
+
+.sidebar-sub-item.active {
+  color: #8B7355;
+  font-weight: 600;
+  background: rgba(139, 115, 85, 0.1);
+}
+
+/* Back button */
+.sidebar-back-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.6rem 1rem;
+  background: none;
+  border: none;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.07);
+  color: #666;
+  font-size: 0.83rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  font-family: inherit;
+  white-space: nowrap;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.sidebar-back-btn:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: #111;
+}
+
+.sidebar-back-icon {
+  font-size: 1rem;
+  min-width: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* Collapsed: icon only + tooltip */
+.sidebar.collapsed .sidebar-menu-btn {
+  padding: 0.72rem;
+  justify-content: center;
+  gap: 0;
+  position: relative;
+}
+
+.sidebar.collapsed .sidebar-menu-group:hover > .sidebar-menu-btn {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.sidebar.collapsed .sidebar-menu-btn::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: calc(100% + 10px);
+  top: 50%;
+  transform: translateY(-50%);
+  background: #1a1a1a;
+  color: #fff;
+  padding: 0.3rem 0.8rem;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 300;
+  border: 1px solid rgba(0,0,0,0.15);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15);
+}
+
+.sidebar.collapsed .sidebar-menu-btn:hover::after {
+  opacity: 1;
+}
+
+/* 펼쳐진 상태에서는 tooltip 숨김 */
+.sidebar:not(.collapsed) .sidebar-menu-btn::after {
+  display: none;
+}
+
+/* Collapsed: 뒤로가기 버튼 tooltip */
+.sidebar.collapsed .sidebar-back-btn {
+  justify-content: center;
+  padding: 0.6rem;
+  position: relative;
+}
+
+.sidebar.collapsed .sidebar-back-btn::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: calc(100% + 10px);
+  top: 50%;
+  transform: translateY(-50%);
+  background: #1a1a1a;
+  color: #fff;
+  padding: 0.3rem 0.8rem;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 300;
+  border: 1px solid rgba(0,0,0,0.15);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15);
+}
+
+.sidebar.collapsed .sidebar-back-btn:hover::after {
+  opacity: 1;
 }
