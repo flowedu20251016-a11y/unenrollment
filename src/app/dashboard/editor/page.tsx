@@ -32,7 +32,7 @@ interface CategoryOptions {
 function EditorDashboardInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [activeTab, setActiveTab] = useState<"report" | "input" | "final-placeholder">("input");
+  const [activeTab, setActiveTab] = useState<"report" | "input" | "kpi-student" | "kpi-report">("input");
   const [userInfo, setUserInfo] = useState<any>(null);
 
   const [reportRecords, setReportRecords] = useState<ReportRecordType[]>([]);
@@ -58,6 +58,12 @@ function EditorDashboardInner() {
   // 분류별 차이 팝업
   const [diffPopup, setDiffPopup] = useState<{ category: string; records: InputRecordType[] } | null>(null);
 
+  // 1차 vs 최종 비교 모달
+  const [showCompareModal, setShowCompareModal] = useState(false);
+  const [compareSection, setCompareSection] = useState<"students" | "report">("students");
+  const [compareExpandedCodes, setCompareExpandedCodes] = useState<Set<string>>(new Set());
+  const [compareMonth, setCompareMonth] = useState<string>("all");
+
   // 보고서 탭 필터
   const [reportViewMode, setReportViewMode] = useState<"month" | "quarter">("month");
   const [reportSelectedMonth, setReportSelectedMonth] = useState("all");
@@ -79,6 +85,19 @@ function EditorDashboardInner() {
   // 누적 데이터 (초기 로드 시 현재 시트와 함께 불러옴)
   const [accReportRecords, setAccReportRecords] = useState<ReportRecordType[]>([]);
   const [accInputRecords, setAccInputRecords] = useState<InputRecordType[]>([]);
+
+  // KPI 데이터
+  const [kpiInputRecords, setKpiInputRecords] = useState<InputRecordType[]>([]);
+  const [kpiReportRecords, setKpiReportRecords] = useState<ReportRecordType[]>([]);
+  const [kpiLoading, setKpiLoading] = useState(false);
+  const [kpiLoaded, setKpiLoaded] = useState(false);
+  const [kpiMonth, setKpiMonth] = useState("all");
+  const [kpiCode, setKpiCode] = useState("all");
+  const [kpiReportMonth, setKpiReportMonth] = useState("all");
+  const [kpiReportCode, setKpiReportCode] = useState("all");
+  const [kpiReportDepts, setKpiReportDepts] = useState<string[]>([]);
+  const [kpiReportBrands, setKpiReportBrands] = useState<string[]>([]);
+  const [kpiReportCampuses, setKpiReportCampuses] = useState<string[]>([]);
 
   // 컬럼 정렬
   const [sortConfig, setSortConfig] = useState<{ key: keyof InputRecordType; dir: "asc" | "desc" } | null>(null);
@@ -236,7 +255,14 @@ function EditorDashboardInner() {
 
   // 월 + 수익코드 복합 필터 + 정렬 (이전달이면 누적 시트 사용)
   const filteredInputRecords = useMemo(() => {
-    const source = isViewingAccumulated ? accInputRecords : inputRecords;
+    let source: InputRecordType[];
+    if (selectedMonth === "all") {
+      // 전체보기: 누적최종(마감 완료) + 최종(누적에 없는 월만)
+      const accMonths = new Set(accInputRecords.map(r => r.colA).filter(Boolean));
+      source = [...accInputRecords, ...inputRecords.filter(r => !accMonths.has(r.colA))];
+    } else {
+      source = isViewingAccumulated ? accInputRecords : inputRecords;
+    }
     let list = source.filter(r => {
       const monthMatch = selectedMonth === "all" || r.colA === selectedMonth;
       const codeMatch = selectedCodes.length === 0 || selectedCodes.includes(r.code);
@@ -324,8 +350,52 @@ function EditorDashboardInner() {
     const s = searchParams?.get("section");
     if (s === "report") setActiveTab("report");
     else if (s === "input") setActiveTab("input");
-    else if (s === "input-final" || s === "report-final") setActiveTab("final-placeholder");
+    else if (s === "input-final") setActiveTab("kpi-student");
+    else if (s === "report-final") setActiveTab("kpi-report");
   }, [searchParams]);
+
+  // KPI 탭 진입 시 lazy load
+  useEffect(() => {
+    if ((activeTab === "kpi-student" || activeTab === "kpi-report") && !kpiLoaded && !kpiLoading) {
+      const sessionStr = typeof window !== "undefined" ? localStorage.getItem("dropout_user") : null;
+      const user = sessionStr ? JSON.parse(sessionStr) : null;
+      fetchKpiData(user);
+    }
+  }, [activeTab]);
+
+  const fetchKpiData = async (user: any) => {
+    setKpiLoading(true);
+    try {
+      const [kpiCurRes, kpiAccRes, kpiRepRes] = await Promise.all([
+        fetch("/api/records/input?tab=kpi최종", { cache: "no-store" }),
+        fetch("/api/records/input?tab=kpi누적최종", { cache: "no-store" }),
+        fetch("/api/records?tab=kpi누적보고서", { cache: "no-store" }),
+      ]);
+      const [kpiCur, kpiAcc, kpiRep] = await Promise.all([kpiCurRes.json(), kpiAccRes.json(), kpiRepRes.json()]);
+
+      let iCur = kpiCur.records || [];
+      let iAcc = kpiAcc.records || [];
+      let rKpi = kpiRep.records || [];
+
+      if (user && user.role !== "admin" && user.role !== "mid_admin") {
+        const inputCodes = user.profitCodes || [];
+        const reportCodes: string[] = user.reportCodes?.length > 0 ? user.reportCodes : inputCodes;
+        iCur = iCur.filter((r: any) => inputCodes.includes(String(r.code)));
+        iAcc = iAcc.filter((r: any) => inputCodes.includes(String(r.code)));
+        rKpi = rKpi.filter((r: any) => reportCodes.includes(String(r.code)));
+      }
+
+      const accMonths = new Set(iAcc.map((r: any) => r.colA).filter(Boolean));
+      const merged = [...iAcc, ...iCur.filter((r: any) => !accMonths.has(r.colA))];
+      setKpiInputRecords(merged);
+      setKpiReportRecords(rKpi);
+      setKpiLoaded(true);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setKpiLoading(false);
+    }
+  };
 
   const fetchData = async (user: any) => {
     setLoading(true);
@@ -399,6 +469,96 @@ function EditorDashboardInner() {
     }
   };
 
+
+  // -----------------------------------------------------
+  // 1차 vs 최종 비교 로직
+  // -----------------------------------------------------
+
+  const handleOpenCompare = () => {
+    setShowCompareModal(true);
+    setCompareSection("students");
+    // 현재 탭 월 필터를 초기값으로
+    setCompareMonth(activeTab === "kpi-student" ? kpiMonth : selectedMonth);
+    if (!kpiLoaded && userInfo) fetchKpiData(userInfo);
+  };
+
+  const compareResult = useMemo(() => {
+    if (!showCompareModal) return null;
+
+    // 1차 탭(inputRecords) vs 최종 탭(kpiInputRecords) 비교
+    const firstRecs = compareMonth === "all"
+      ? inputRecords
+      : inputRecords.filter(r => r.colA === compareMonth);
+    const finalRecs = compareMonth === "all"
+      ? kpiInputRecords
+      : kpiInputRecords.filter(r => r.colA === compareMonth);
+
+    const makeKey = (r: InputRecordType) => `${r.code}||${r.className}||${r.studentName}`;
+    const firstMap = new Map(firstRecs.map(r => [makeKey(r), r]));
+    const finalMap = new Map(finalRecs.map(r => [makeKey(r), r]));
+
+    type CompareRow = {
+      key: string; code: string; className: string; studentName: string;
+      type: "추가" | "삭제" | "변경" | "동일";
+      first: InputRecordType | null; final: InputRecordType | null;
+    };
+    const students: CompareRow[] = [];
+
+    finalRecs.forEach(r => {
+      const key = makeKey(r);
+      const f = firstMap.get(key);
+      if (!f) {
+        students.push({ key, code: r.code, className: r.className, studentName: r.studentName, type: "추가", first: null, final: r });
+      } else {
+        const changed = f.zAdminReason1 !== r.zAdminReason1 || f.aaAdminReason2 !== r.aaAdminReason2 || f.vReason1 !== r.vReason1;
+        students.push({ key, code: r.code, className: r.className, studentName: r.studentName, type: changed ? "변경" : "동일", first: f, final: r });
+      }
+    });
+    firstRecs.forEach(r => {
+      const key = makeKey(r);
+      if (!finalMap.has(key)) {
+        students.push({ key, code: r.code, className: r.className, studentName: r.studentName, type: "삭제", first: r, final: null });
+      }
+    });
+
+    const typeOrder: Record<string, number> = { "추가": 0, "변경": 1, "삭제": 2, "동일": 3 };
+    students.sort((a, b) => (typeOrder[a.type] ?? 9) - (typeOrder[b.type] ?? 9));
+
+    // 보고서용: 수익코드별 집계
+    const codes = Array.from(new Set([...finalRecs.map(r => r.code), ...firstRecs.map(r => r.code)].filter(Boolean))).sort();
+    const reportRows = codes.map(code => {
+      const fc = firstRecs.filter(r => r.code === code);
+      const fn = finalRecs.filter(r => r.code === code);
+      const reasonBreakdown: Record<string, { first: number; final: number }> = {};
+      [...new Set([...fc.map(r => r.zAdminReason1), ...fn.map(r => r.zAdminReason1)].filter(Boolean))].forEach(reason => {
+        reasonBreakdown[reason] = {
+          first: fc.filter(r => r.zAdminReason1 === reason).length,
+          final: fn.filter(r => r.zAdminReason1 === reason).length,
+        };
+      });
+      return {
+        code,
+        firstTotal: fc.length,
+        finalTotal: fn.length,
+        firstConfirmed: fc.filter(r => r.zAdminReason1).length,
+        finalConfirmed: fn.filter(r => r.zAdminReason1).length,
+        delta: fn.length - fc.length,
+        reasonBreakdown,
+      };
+    });
+
+    return {
+      students,
+      summary: {
+        total: students.length,
+        added: students.filter(s => s.type === "추가").length,
+        deleted: students.filter(s => s.type === "삭제").length,
+        changed: students.filter(s => s.type === "변경").length,
+        same: students.filter(s => s.type === "동일").length,
+      },
+      reportRows,
+    };
+  }, [showCompareModal, compareMonth, inputRecords, kpiInputRecords]);
 
   // -----------------------------------------------------
   // 기능 로직
@@ -900,6 +1060,40 @@ function EditorDashboardInner() {
     </div>
   );
 
+  // KPI 보고서 파생 데이터
+  const kpiReportDeptOptions = useMemo(() => Array.from(new Set(kpiReportRecords.map(r => r.department).filter(Boolean))).sort() as string[], [kpiReportRecords]);
+  const kpiReportBrandOptions = useMemo(() => Array.from(new Set(kpiReportRecords.map(r => r.brand).filter(Boolean))).sort() as string[], [kpiReportRecords]);
+  const kpiReportCampusOptions = useMemo(() => Array.from(new Set(kpiReportRecords.map(r => r.campus).filter(Boolean))).sort() as string[], [kpiReportRecords]);
+  const filteredKpiReportRecords = useMemo(() => {
+    return kpiReportRecords.filter(r => {
+      if (kpiReportMonth !== "all" && r.month !== kpiReportMonth) return false;
+      if (kpiReportCode !== "all" && r.code !== kpiReportCode) return false;
+      if (kpiReportDepts.length > 0 && !kpiReportDepts.includes(r.department)) return false;
+      if (kpiReportBrands.length > 0 && !kpiReportBrands.includes(r.brand)) return false;
+      if (kpiReportCampuses.length > 0 && !kpiReportCampuses.includes(r.campus)) return false;
+      return true;
+    });
+  }, [kpiReportRecords, kpiReportMonth, kpiReportCode, kpiReportDepts, kpiReportBrands, kpiReportCampuses]);
+  const kpiReportSummary = useMemo(() => {
+    const sumField = (getter: (r: ReportRecordType) => string) => {
+      const vals = filteredKpiReportRecords.map(r => parseFloat(getter(r))).filter(v => !isNaN(v));
+      return vals.length > 0 ? vals.reduce((a, b) => a + b, 0) : null;
+    };
+    return {
+      finalJaewon: sumField(r => r.finalJaewon),
+      finalDropout: sumField(r => r.finalDropout),
+      acaJaewonEnd: sumField(r => r.acaJaewonEnd),
+      acaNew: sumField(r => r.acaNew),
+      acaDropout: sumField(r => r.acaDropout),
+      exWarn: sumField(r => r.exWarn),
+      exEnd: sumField(r => r.exEnd),
+      exEvent: sumField(r => r.exEvent),
+      exTotal: sumField(r => r.exTotal),
+      acaJaewon: sumField(r => r.acaJaewon),
+      acaJaewonDiff: sumField(r => r.acaJaewonDiff),
+    };
+  }, [filteredKpiReportRecords]);
+
   // 보고서 합계 계산
   const reportSummary = useMemo(() => {
     const sumField = (getter: (r: ReportRecordType) => string) => {
@@ -1268,13 +1462,21 @@ function EditorDashboardInner() {
         <div className="print-hide" style={{ display: "flex", gap: "1rem", alignItems: "center", flexWrap: "wrap" }}>
 
           {/* 사유 작성 탭 — 월 필터 */}
-          {activeTab === "input" && (
+          {(activeTab === "input" || activeTab === "kpi-student") && (
             <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
               <span style={{ fontSize: "0.95rem", color: "var(--text-secondary)", fontWeight: 600 }}>월:</span>
               <select className="filter-select" value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)}>
                 <option value="all">전체 월</option>
                 {monthOptions.map(m => <option key={m} value={m}>{m}</option>)}
               </select>
+              <button
+                onClick={handleOpenCompare}
+                style={{
+                  padding: "0.3rem 0.85rem", borderRadius: "6px", fontSize: "0.82rem", cursor: "pointer",
+                  border: "1px solid rgba(79,70,229,0.35)", background: "rgba(79,70,229,0.08)",
+                  color: "#4f46e5", fontWeight: 600, whiteSpace: "nowrap",
+                }}
+              >비교 보기</button>
             </div>
           )}
 
@@ -1351,11 +1553,238 @@ function EditorDashboardInner() {
         </button>
       </div>
 
-      {activeTab === "final-placeholder" ? (
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "60vh", flexDirection: "column", gap: "1rem", color: "var(--text-secondary)" }}>
-          <span style={{ fontSize: "2.5rem", opacity: 0.3 }}>📋</span>
-          <p style={{ fontSize: "0.95rem", fontWeight: 600 }}>연결 준비 중입니다.</p>
-          <p style={{ fontSize: "0.83rem", opacity: 0.7 }}>데이터 연결 방식 업로드 후 표시됩니다.</p>
+      {activeTab === "kpi-student" ? (
+        <div className="glass-container" style={{ padding: "0" }}>
+          {kpiLoading ? <p style={{ padding: "2rem" }}>동기화 중...</p> : (
+            <div className="data-table-container" style={{ padding: 0, margin: 0, border: "none" }}>
+              {/* 수익코드 필터 */}
+              <div style={{ padding: "0.5rem 1rem", background: "rgba(0,0,0,0.02)", borderBottom: "1px solid rgba(0,0,0,0.08)", display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+                <span style={{ fontSize: "0.82rem", color: "var(--text-secondary)", fontWeight: 600 }}>📅 월:</span>
+                <select className="filter-select" value={kpiMonth} onChange={e => setKpiMonth(e.target.value)}>
+                  <option value="all">전체보기</option>
+                  {Array.from(new Set(kpiInputRecords.map(r => r.colA).filter(Boolean))).sort().reverse().map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
+                <span style={{ fontSize: "0.82rem", color: "var(--text-secondary)", fontWeight: 600, marginLeft: "0.5rem" }}>수익코드:</span>
+                {Array.from(new Set(kpiInputRecords.map(r => r.code).filter(Boolean))).sort().map(c => (
+                  <button key={c} onClick={() => setKpiCode(prev => prev === c ? "all" : c)} style={{
+                    padding: "0.25rem 0.9rem", borderRadius: "999px", fontSize: "0.78rem", cursor: "pointer",
+                    border: kpiCode === c ? "1px solid #8B7355" : "1px solid rgba(0,0,0,0.12)",
+                    background: kpiCode === c ? "rgba(79,70,229,0.12)" : "transparent",
+                    color: kpiCode === c ? "#4f46e5" : "var(--text-secondary)",
+                  }}>{c}</button>
+                ))}
+                <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)", marginLeft: "auto" }}>
+                  총 <b style={{ color: "var(--text-primary)" }}>{kpiInputRecords.filter(r => (kpiMonth === "all" || r.colA === kpiMonth) && (kpiCode === "all" || r.code === kpiCode)).length}</b>건
+                </span>
+              </div>
+              <table className="data-table" style={{ borderCollapse: "collapse", fontSize: "0.80rem" }}>
+                <thead>
+                  <tr>
+                    <th rowSpan={2} style={{ background: "rgba(0,0,0,0.03)", whiteSpace: "nowrap" }}>#</th>
+                    <th colSpan={3} style={{ backgroundImage: "linear-gradient(rgba(5,150,105,0.12), rgba(5,150,105,0.12))", borderRight: "1px solid rgba(0,0,0,0.08)", color: "#059669" }}>기조실 확정</th>
+                    <th colSpan={4} style={{ backgroundImage: "linear-gradient(rgba(79,70,229,0.10), rgba(79,70,229,0.10))", borderRight: "1px solid rgba(0,0,0,0.08)", color: "#4f46e5" }}>사업부 작성</th>
+                    <th colSpan={11} style={{ background: "rgba(0,0,0,0.03)" }}>퇴원생 정보</th>
+                  </tr>
+                  <tr style={{ background: "rgba(0,0,0,0.02)", color: "var(--text-secondary)", fontSize: "0.75rem" }}>
+                    <th style={{ color: "#059669" }}>사유(기조실)</th>
+                    <th style={{ color: "#059669" }}>종류(기조실)</th>
+                    <th style={{ borderRight: "1px solid rgba(0,0,0,0.08)", color: "#059669" }}>상세(기조실)</th>
+                    <th style={{ color: "#4f46e5" }}>퇴원사유(분류1)</th>
+                    <th style={{ color: "#4f46e5" }}>퇴원종류(분류2)</th>
+                    <th style={{ color: "#4f46e5" }}>증빙여부</th>
+                    <th style={{ borderRight: "1px solid rgba(0,0,0,0.08)", color: "#4f46e5" }}>상세내역</th>
+                    <th>학생명</th>
+                    <th>학교명</th>
+                    <th>학년</th>
+                    <th>마지막출석일</th>
+                    <th>사유원문</th>
+                    <th>반형태2</th>
+                    <th>반명</th>
+                    <th>시작일</th>
+                    <th>종료일</th>
+                    <th>수익코드</th>
+                    <th>다운일자</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {kpiInputRecords
+                    .filter(r => (kpiMonth === "all" || r.colA === kpiMonth) && (kpiCode === "all" || r.code === kpiCode))
+                    .map((r, idx) => (
+                      <tr key={r.id}>
+                        <td style={{ color: "var(--text-secondary)", textAlign: "center" }}>{idx + 1}</td>
+                        <td style={{ color: "var(--text-primary)" }}>{r.zAdminReason1 || "-"}</td>
+                        <td style={{ color: "var(--text-primary)" }}>{r.aaAdminReason2 || "-"}</td>
+                        <td style={{ color: "var(--text-primary)", borderRight: "1px solid rgba(0,0,0,0.08)" }}>
+                          {r.abAdminDetail || "-"}
+                          <span style={{ marginLeft: "0.4rem", fontSize: "0.7rem", color: "#dc2626" }}>🔒마감</span>
+                        </td>
+                        <td>{r.vReason1 || <span style={{ opacity: 0.4 }}>-</span>}</td>
+                        <td>{r.wReason2 || <span style={{ opacity: 0.4 }}>-</span>}</td>
+                        <td>
+                          {r.xFileLink
+                            ? r.xFileLink.split("|||").map((link, i) => (
+                                <a key={i} href={link} target="_blank" rel="noreferrer" style={{ color: "#059669", fontSize: "0.80rem", display: "block" }}>파일{i + 1} 보기</a>
+                              ))
+                            : <span style={{ opacity: 0.4 }}>-</span>}
+                        </td>
+                        <td style={{ borderRight: "1px solid rgba(0,0,0,0.08)" }}>{r.yDetail || <span style={{ opacity: 0.4 }}>-</span>}</td>
+                        <td style={{ color: "#2563eb", fontWeight: 600 }}>{r.studentName}</td>
+                        <td>{r.school || <span style={{ opacity: 0.4 }}>-</span>}</td>
+                        <td>{r.grade || <span style={{ opacity: 0.4 }}>-</span>}</td>
+                        <td>{r.lastAttend || <span style={{ opacity: 0.4 }}>-</span>}</td>
+                        <td>{r.reasonOriginal || <span style={{ opacity: 0.4 }}>-</span>}</td>
+                        <td>{r.classType2 || <span style={{ opacity: 0.4 }}>-</span>}</td>
+                        <td>{r.className}</td>
+                        <td>{r.startDate || <span style={{ opacity: 0.4 }}>-</span>}</td>
+                        <td>{r.endDate || <span style={{ opacity: 0.4 }}>-</span>}</td>
+                        <td style={{ fontWeight: 700, color: "var(--accent-primary)" }}>{r.code}</td>
+                        <td style={{ color: "var(--text-secondary)" }}>{r.downloadDate || <span style={{ opacity: 0.4 }}>-</span>}</td>
+                      </tr>
+                    ))}
+                  {kpiInputRecords.filter(r => (kpiMonth === "all" || r.colA === kpiMonth) && (kpiCode === "all" || r.code === kpiCode)).length === 0 && (
+                    <tr><td colSpan={19} style={{ textAlign: "center", padding: "3rem", opacity: 0.5 }}>KPI 퇴원생 데이터가 없습니다.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      ) : activeTab === "kpi-report" ? (
+        <div className="glass-container" style={{ padding: "0" }}>
+          {kpiLoading ? <p style={{ padding: "2rem" }}>동기화 중...</p> : (
+            <div>
+              {(kpiReportDeptOptions.length > 0 || kpiReportBrandOptions.length > 0 || kpiReportCampusOptions.length > 0) && (
+                <div style={{ padding: "0.6rem 1rem", background: "rgba(0,0,0,0.02)", borderBottom: "1px solid rgba(0,0,0,0.08)", display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+                  {kpiReportDeptOptions.length > 0 && (
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", flexWrap: "wrap" }}>
+                      <span style={{ fontSize: "0.78rem", color: "var(--text-secondary)", fontWeight: 600, minWidth: "3.5rem" }}>사업부</span>
+                      <button onClick={() => setKpiReportDepts([])} style={{ padding: "0.2rem 0.6rem", borderRadius: "999px", fontSize: "0.75rem", cursor: "pointer", border: kpiReportDepts.length === 0 ? "1px solid #8B7355" : "1px solid rgba(0,0,0,0.12)", background: kpiReportDepts.length === 0 ? "rgba(79,70,229,0.12)" : "transparent", color: kpiReportDepts.length === 0 ? "#4f46e5" : "var(--text-secondary)" }}>전체</button>
+                      {kpiReportDeptOptions.map(d => (
+                        <button key={d} onClick={() => setKpiReportDepts(prev => prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d])} style={{ padding: "0.2rem 0.6rem", borderRadius: "999px", fontSize: "0.75rem", cursor: "pointer", border: kpiReportDepts.includes(d) ? "1px solid #8B7355" : "1px solid rgba(0,0,0,0.12)", background: kpiReportDepts.includes(d) ? "rgba(79,70,229,0.12)" : "transparent", color: kpiReportDepts.includes(d) ? "#4f46e5" : "var(--text-secondary)" }}>{d}</button>
+                      ))}
+                    </div>
+                  )}
+                  {kpiReportBrandOptions.length > 0 && (
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", flexWrap: "wrap" }}>
+                      <span style={{ fontSize: "0.78rem", color: "var(--text-secondary)", fontWeight: 600, minWidth: "3.5rem" }}>브랜드</span>
+                      <button onClick={() => setKpiReportBrands([])} style={{ padding: "0.2rem 0.6rem", borderRadius: "999px", fontSize: "0.75rem", cursor: "pointer", border: kpiReportBrands.length === 0 ? "1px solid #059669" : "1px solid rgba(0,0,0,0.12)", background: kpiReportBrands.length === 0 ? "rgba(5,150,105,0.10)" : "transparent", color: kpiReportBrands.length === 0 ? "#059669" : "var(--text-secondary)" }}>전체</button>
+                      {kpiReportBrandOptions.map(b => (
+                        <button key={b} onClick={() => setKpiReportBrands(prev => prev.includes(b) ? prev.filter(x => x !== b) : [...prev, b])} style={{ padding: "0.2rem 0.6rem", borderRadius: "999px", fontSize: "0.75rem", cursor: "pointer", border: kpiReportBrands.includes(b) ? "1px solid #059669" : "1px solid rgba(0,0,0,0.12)", background: kpiReportBrands.includes(b) ? "rgba(5,150,105,0.10)" : "transparent", color: kpiReportBrands.includes(b) ? "#059669" : "var(--text-secondary)" }}>{b}</button>
+                      ))}
+                    </div>
+                  )}
+                  {kpiReportCampusOptions.length > 0 && (
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", flexWrap: "wrap" }}>
+                      <span style={{ fontSize: "0.78rem", color: "var(--text-secondary)", fontWeight: 600, minWidth: "3.5rem" }}>캠퍼스</span>
+                      <button onClick={() => setKpiReportCampuses([])} style={{ padding: "0.2rem 0.6rem", borderRadius: "999px", fontSize: "0.75rem", cursor: "pointer", border: kpiReportCampuses.length === 0 ? "1px solid #d97706" : "1px solid rgba(0,0,0,0.12)", background: kpiReportCampuses.length === 0 ? "rgba(217,119,6,0.10)" : "transparent", color: kpiReportCampuses.length === 0 ? "#d97706" : "var(--text-secondary)" }}>전체</button>
+                      {kpiReportCampusOptions.map(c => (
+                        <button key={c} onClick={() => setKpiReportCampuses(prev => prev.includes(c) ? prev.filter(x => x !== c) : [...prev, c])} style={{ padding: "0.2rem 0.6rem", borderRadius: "999px", fontSize: "0.75rem", cursor: "pointer", border: kpiReportCampuses.includes(c) ? "1px solid #d97706" : "1px solid rgba(0,0,0,0.12)", background: kpiReportCampuses.includes(c) ? "rgba(217,119,6,0.10)" : "transparent", color: kpiReportCampuses.includes(c) ? "#d97706" : "var(--text-secondary)" }}>{c}</button>
+                      ))}
+                    </div>
+                  )}
+                  <span style={{ fontSize: "0.78rem", color: "var(--text-secondary)" }}>총 <b style={{ color: "var(--text-primary)" }}>{filteredKpiReportRecords.length}</b>건</span>
+                </div>
+              )}
+              <div className="data-table-container" style={{ padding: 0, margin: 0, border: "none" }}>
+                <table className="data-table" style={{ fontSize: "0.80rem" }}>
+                  <thead>
+                    <tr>
+                      <th rowSpan={2} style={{ background: "rgba(0,0,0,0.04)", whiteSpace: "nowrap" }}>연월</th>
+                      <th rowSpan={2} style={{ background: "rgba(0,0,0,0.04)", fontWeight: "bold" }}>수익코드</th>
+                      <th rowSpan={2} style={{ background: "rgba(0,0,0,0.04)" }}>사업부</th>
+                      <th rowSpan={2} style={{ background: "rgba(0,0,0,0.04)" }}>브랜드</th>
+                      <th rowSpan={2} style={{ background: "rgba(0,0,0,0.04)" }}>캠퍼스</th>
+                      <th rowSpan={2} style={{ background: "rgba(0,0,0,0.04)", borderRight: "1px solid rgba(0,0,0,0.08)" }}>작성자</th>
+                      <th colSpan={4} style={{ backgroundImage: "linear-gradient(rgba(5,150,105,0.12), rgba(5,150,105,0.12))", color: "#059669", borderTop: "2px solid #059669", borderLeft: "2px solid #059669" }}>최종퇴원율</th>
+                      <th rowSpan={2} style={{ backgroundImage: "linear-gradient(rgba(37,99,235,0.10), rgba(37,99,235,0.10))", color: "#2563eb", whiteSpace: "nowrap", borderTop: "2px solid #059669", borderRight: "2px solid #059669" }}>목표퇴원율</th>
+                      <th colSpan={5} style={{ background: "rgba(0,0,0,0.03)", borderRight: "1px solid rgba(0,0,0,0.08)" }}>ACA</th>
+                      <th colSpan={5} style={{ backgroundImage: "linear-gradient(rgba(245,158,11,0.15), rgba(245,158,11,0.15))", color: "#d97706", borderRight: "1px solid rgba(0,0,0,0.08)" }}>경고·종강·이벤트</th>
+                      <th colSpan={2} style={{ background: "rgba(0,0,0,0.03)" }}>ACA 재원</th>
+                    </tr>
+                    <tr>
+                      <th style={{ backgroundImage: "linear-gradient(rgba(5,150,105,0.06), rgba(5,150,105,0.06))", color: "var(--text-secondary)", whiteSpace: "nowrap", borderLeft: "2px solid #059669" }}>재원(15일)</th>
+                      <th style={{ backgroundImage: "linear-gradient(rgba(5,150,105,0.06), rgba(5,150,105,0.06))", color: "var(--text-secondary)" }}>최종퇴원</th>
+                      <th style={{ backgroundImage: "linear-gradient(rgba(5,150,105,0.06), rgba(5,150,105,0.06))", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>퇴원율(%)</th>
+                      <th style={{ backgroundImage: "linear-gradient(rgba(5,150,105,0.06), rgba(5,150,105,0.06))", color: "var(--text-secondary)", borderRight: "1px solid rgba(0,0,0,0.08)", whiteSpace: "nowrap" }}>브랜드평균(%)</th>
+                      <th style={{ background: "rgba(0,0,0,0.02)", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>재원(말일)</th>
+                      <th style={{ background: "rgba(0,0,0,0.02)", color: "var(--text-secondary)" }}>신규</th>
+                      <th style={{ background: "rgba(0,0,0,0.02)", color: "var(--text-secondary)" }}>퇴원</th>
+                      <th style={{ background: "rgba(0,0,0,0.02)", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>퇴원율(%)</th>
+                      <th style={{ background: "rgba(0,0,0,0.02)", color: "var(--text-secondary)", borderRight: "1px solid rgba(0,0,0,0.08)", whiteSpace: "nowrap" }}>브랜드평균</th>
+                      <th style={{ backgroundImage: "linear-gradient(rgba(245,158,11,0.08), rgba(245,158,11,0.08))", color: "var(--text-secondary)" }}>경고</th>
+                      <th style={{ backgroundImage: "linear-gradient(rgba(245,158,11,0.08), rgba(245,158,11,0.08))", color: "var(--text-secondary)" }}>종강</th>
+                      <th style={{ backgroundImage: "linear-gradient(rgba(245,158,11,0.08), rgba(245,158,11,0.08))", color: "var(--text-secondary)" }}>이벤트</th>
+                      <th style={{ backgroundImage: "linear-gradient(rgba(245,158,11,0.10), rgba(245,158,11,0.10))", color: "var(--text-secondary)" }}>합계</th>
+                      <th style={{ backgroundImage: "linear-gradient(rgba(245,158,11,0.08), rgba(245,158,11,0.08))", color: "var(--text-secondary)", borderRight: "1px solid rgba(0,0,0,0.08)", whiteSpace: "nowrap" }}>제외율(%)</th>
+                      <th style={{ background: "rgba(0,0,0,0.02)", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>재원(15일)</th>
+                      <th style={{ background: "rgba(0,0,0,0.02)", color: "var(--text-secondary)" }}>재원제외</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredKpiReportRecords.length === 0
+                      ? <tr><td colSpan={22} style={{ textAlign: "center", padding: "3rem", opacity: 0.5 }}>KPI 보고서 데이터가 없습니다.</td></tr>
+                      : filteredKpiReportRecords.map(r => {
+                          const finalRateNum = parseFloat(r.finalRate);
+                          const targetRateNum = parseFloat(r.targetRate);
+                          const isOverTarget = !isNaN(finalRateNum) && !isNaN(targetRateNum) && finalRateNum > targetRateNum;
+                          return (
+                            <tr key={r.id}>
+                              <td style={{ color: "var(--text-secondary)", whiteSpace: "nowrap" }}>{r.month}</td>
+                              <td style={{ color: "var(--text-primary)", fontWeight: "bold" }}>{r.code}</td>
+                              <td style={{ color: "var(--text-secondary)" }}>{r.department}</td>
+                              <td style={{ color: "var(--text-secondary)" }}>{r.brand}</td>
+                              <td style={{ color: "var(--text-secondary)" }}>{r.campus}</td>
+                              <td style={{ color: "var(--text-secondary)", borderRight: "1px solid rgba(0,0,0,0.08)" }}>{r.manager}</td>
+                              <td style={{ borderLeft: "2px solid #059669" }}>{r.finalJaewon}</td>
+                              <td style={{ color: "#059669", fontWeight: "bold" }}>{r.finalDropout}</td>
+                              <td style={{ color: isOverTarget ? "#fff" : "var(--danger)", fontWeight: "bold", background: isOverTarget ? "#dc2626" : undefined, borderRadius: isOverTarget ? "4px" : undefined }}>{r.finalRate}</td>
+                              <td style={{ color: "var(--text-secondary)", borderRight: "1px solid rgba(0,0,0,0.08)" }}>{r.finalBrandAvg}</td>
+                              <td style={{ color: "#2563eb", fontWeight: "bold", borderRight: "2px solid #059669" }}>{r.targetRate}</td>
+                              <td style={{ color: "var(--text-secondary)" }}>{r.acaJaewonEnd}</td>
+                              <td style={{ color: "var(--text-secondary)" }}>{r.acaNew}</td>
+                              <td style={{ color: "var(--text-secondary)" }}>{r.acaDropout}</td>
+                              <td style={{ color: "var(--text-secondary)" }}>{r.acaRealRate}</td>
+                              <td style={{ color: "var(--text-secondary)", borderRight: "1px solid rgba(0,0,0,0.08)" }}>{r.acaBrandAvg}</td>
+                              <td style={{ color: "var(--text-secondary)" }}>{r.exWarn}</td>
+                              <td style={{ color: "var(--text-secondary)" }}>{r.exEnd}</td>
+                              <td style={{ color: "var(--text-secondary)" }}>{r.exEvent}</td>
+                              <td style={{ color: "#d97706", fontWeight: "bold" }}>{r.exTotal}</td>
+                              <td style={{ color: "var(--text-secondary)", borderRight: "1px solid rgba(0,0,0,0.08)" }}>{r.exRate}</td>
+                              <td style={{ color: "var(--text-secondary)" }}>{r.acaJaewon}</td>
+                              <td style={{ color: "var(--text-secondary)" }}>{r.acaJaewonDiff}</td>
+                            </tr>
+                          );
+                        })
+                    }
+                  </tbody>
+                  {filteredKpiReportRecords.length > 0 && (
+                    <tfoot>
+                      <tr style={{ background: "rgba(0,0,0,0.05)", fontWeight: 700, borderTop: "2px solid rgba(0,0,0,0.15)" }}>
+                        <td colSpan={6} style={{ textAlign: "center", color: "var(--text-secondary)", fontSize: "0.78rem", padding: "0.4rem 0.6rem" }}>합계</td>
+                        <td style={{ borderLeft: "2px solid #059669" }}>{kpiReportSummary.finalJaewon ?? "-"}</td>
+                        <td style={{ color: "#059669" }}>{kpiReportSummary.finalDropout ?? "-"}</td>
+                        <td>-</td>
+                        <td style={{ borderRight: "1px solid rgba(0,0,0,0.08)" }}>-</td>
+                        <td style={{ borderRight: "2px solid #059669" }}>-</td>
+                        <td>{kpiReportSummary.acaJaewonEnd ?? "-"}</td>
+                        <td>{kpiReportSummary.acaNew ?? "-"}</td>
+                        <td>{kpiReportSummary.acaDropout ?? "-"}</td>
+                        <td>-</td>
+                        <td style={{ borderRight: "1px solid rgba(0,0,0,0.08)" }}>-</td>
+                        <td>{kpiReportSummary.exWarn ?? "-"}</td>
+                        <td>{kpiReportSummary.exEnd ?? "-"}</td>
+                        <td>{kpiReportSummary.exEvent ?? "-"}</td>
+                        <td style={{ color: "#d97706" }}>{kpiReportSummary.exTotal ?? "-"}</td>
+                        <td style={{ borderRight: "1px solid rgba(0,0,0,0.08)" }}>-</td>
+                        <td>{kpiReportSummary.acaJaewon ?? "-"}</td>
+                        <td>{kpiReportSummary.acaJaewonDiff ?? "-"}</td>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       ) : (
         <div className="glass-container" style={{ padding: "0" }}>
@@ -1368,6 +1797,180 @@ function EditorDashboardInner() {
       )}
 
       <ChatbotOverlay />
+
+      {/* 1차 vs 최종 비교 모달 */}
+      {showCompareModal && (
+        <>
+          <div
+            onClick={() => setShowCompareModal(false)}
+            style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 1050 }}
+          />
+          <div style={{
+            position: "fixed", zIndex: 1060,
+            top: "50%", left: "50%", transform: "translate(-50%, -50%)",
+            background: "var(--bg-secondary, #f2ece2)", borderRadius: "12px",
+            border: "1px solid rgba(0,0,0,0.12)",
+            width: "min(92vw, 900px)", maxHeight: "85vh",
+            display: "flex", flexDirection: "column",
+            boxShadow: "0 12px 48px rgba(0,0,0,0.5)",
+          }}>
+            {/* 헤더 */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.9rem 1.2rem 0.7rem", borderBottom: "1px solid rgba(0,0,0,0.08)", borderRadius: "12px 12px 0 0", background: "rgba(0,0,0,0.02)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
+                <h3 style={{ margin: 0, fontSize: "0.95rem" }}>1차 vs 최종 비교</h3>
+                <select
+                  value={compareMonth}
+                  onChange={e => setCompareMonth(e.target.value)}
+                  className="filter-select"
+                  style={{ fontSize: "0.8rem" }}
+                >
+                  <option value="all">전체 월</option>
+                  {monthOptions.map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
+                <div style={{ display: "flex", borderRadius: "6px", overflow: "hidden", border: "1px solid rgba(0,0,0,0.12)" }}>
+                  <button onClick={() => setCompareSection("students")} style={{ padding: "0.2rem 0.7rem", fontSize: "0.78rem", cursor: "pointer", border: "none", background: compareSection === "students" ? "rgba(79,70,229,0.15)" : "transparent", color: compareSection === "students" ? "#4f46e5" : "var(--text-secondary)" }}>퇴원생 비교</button>
+                  <button onClick={() => setCompareSection("report")} style={{ padding: "0.2rem 0.7rem", fontSize: "0.78rem", cursor: "pointer", border: "none", background: compareSection === "report" ? "rgba(5,150,105,0.15)" : "transparent", color: compareSection === "report" ? "#059669" : "var(--text-secondary)" }}>집계 비교</button>
+                </div>
+              </div>
+              <button onClick={() => setShowCompareModal(false)} style={{ background: "transparent", border: "none", color: "var(--text-secondary)", fontSize: "1.2rem", cursor: "pointer" }}>✕</button>
+            </div>
+
+            {/* 본문 */}
+            <div style={{ overflow: "auto", flex: 1 }}>
+              {!compareResult ? null : compareSection === "students" ? (
+                /* ── 퇴원생 비교 섹션 ── */
+                <div>
+                  {/* 요약 바 */}
+                  <div style={{ display: "flex", gap: "1.25rem", padding: "0.65rem 1.2rem", borderBottom: "1px solid rgba(0,0,0,0.08)", background: "rgba(0,0,0,0.02)", fontSize: "0.82rem", flexWrap: "wrap", alignItems: "center" }}>
+                    <span style={{ color: "var(--text-secondary)" }}>전체 <b style={{ color: "var(--text-primary)" }}>{compareResult.summary.total}</b>명</span>
+                    {compareResult.summary.added > 0 && <span style={{ color: "#dc2626", fontWeight: 700 }}>🔴 추가 {compareResult.summary.added}명</span>}
+                    {compareResult.summary.changed > 0 && <span style={{ color: "#d97706", fontWeight: 700 }}>🟡 변경 {compareResult.summary.changed}명</span>}
+                    {compareResult.summary.deleted > 0 && <span style={{ color: "#6b7280", fontWeight: 700 }}>⚫ 삭제 {compareResult.summary.deleted}명</span>}
+                    <span style={{ color: "#059669" }}>동일 {compareResult.summary.same}명</span>
+                  </div>
+                  <table style={{ fontSize: "0.79rem", borderCollapse: "collapse", width: "100%" }}>
+                    <thead>
+                      <tr style={{ background: "rgba(0,0,0,0.03)", borderBottom: "1px solid rgba(0,0,0,0.08)" }}>
+                        <th style={{ padding: "0.4rem 0.75rem", textAlign: "left", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>구분</th>
+                        <th style={{ padding: "0.4rem 0.75rem", textAlign: "left", color: "var(--text-secondary)" }}>수익코드</th>
+                        <th style={{ padding: "0.4rem 0.75rem", textAlign: "left", color: "var(--text-secondary)" }}>반명</th>
+                        <th style={{ padding: "0.4rem 0.75rem", textAlign: "left", color: "var(--text-secondary)" }}>학생명</th>
+                        <th style={{ padding: "0.4rem 0.75rem", textAlign: "left", color: "#6b7280" }}>1차 기조실확정</th>
+                        <th style={{ padding: "0.4rem 0.75rem", textAlign: "left", color: "#059669" }}>최종 기조실확정</th>
+                        <th style={{ padding: "0.4rem 0.75rem", textAlign: "left", color: "#6b7280" }}>1차 사유(사업부)</th>
+                        <th style={{ padding: "0.4rem 0.75rem", textAlign: "left", color: "#059669" }}>최종 사유(사업부)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {compareResult.students.map((s, i) => {
+                        const typeMeta: Record<string, { label: string; color: string; bg: string }> = {
+                          "추가": { label: "추가", color: "#dc2626", bg: "rgba(220,38,38,0.06)" },
+                          "변경": { label: "변경", color: "#d97706", bg: "rgba(217,119,6,0.06)" },
+                          "삭제": { label: "삭제", color: "#6b7280", bg: "rgba(107,114,128,0.06)" },
+                          "동일": { label: "동일", color: "var(--text-secondary)", bg: "transparent" },
+                        };
+                        const meta = typeMeta[s.type];
+                        const firstAdmin = s.first?.zAdminReason1 || "";
+                        const finalAdmin = s.final?.zAdminReason1 || "";
+                        const firstReason = s.first ? [s.first.vReason1, s.first.wReason2].filter(Boolean).join(" > ") : "";
+                        const finalReason = s.final ? [s.final.vReason1, s.final.wReason2].filter(Boolean).join(" > ") : "";
+                        const adminChanged = firstAdmin !== finalAdmin;
+                        const reasonChanged = firstReason !== finalReason;
+                        return (
+                          <tr key={s.key + i} style={{ borderBottom: "1px solid rgba(0,0,0,0.05)", background: meta.bg }}>
+                            <td style={{ padding: "0.32rem 0.75rem", whiteSpace: "nowrap" }}>
+                              <span style={{ fontWeight: 700, color: meta.color, fontSize: "0.75rem", padding: "0.1rem 0.4rem", borderRadius: "4px", border: `1px solid ${meta.color}` }}>{meta.label}</span>
+                            </td>
+                            <td style={{ padding: "0.32rem 0.75rem", color: "#4f46e5", fontWeight: 700 }}>{s.code}</td>
+                            <td style={{ padding: "0.32rem 0.75rem", color: "var(--text-secondary)" }}>{s.className}</td>
+                            <td style={{ padding: "0.32rem 0.75rem", fontWeight: 600 }}>{s.studentName}</td>
+                            <td style={{ padding: "0.32rem 0.75rem", color: adminChanged ? "#6b7280" : "var(--text-secondary)", textDecoration: adminChanged ? "line-through" : "none", opacity: adminChanged ? 0.7 : 1 }}>
+                              {firstAdmin || <span style={{ opacity: 0.35 }}>미확정</span>}
+                            </td>
+                            <td style={{ padding: "0.32rem 0.75rem", color: adminChanged ? "#059669" : "var(--text-secondary)", fontWeight: adminChanged ? 700 : "normal" }}>
+                              {finalAdmin || <span style={{ opacity: 0.35 }}>미확정</span>}
+                            </td>
+                            <td style={{ padding: "0.32rem 0.75rem", color: reasonChanged ? "#6b7280" : "var(--text-secondary)", textDecoration: reasonChanged ? "line-through" : "none", opacity: reasonChanged ? 0.7 : 1, fontSize: "0.75rem" }}>
+                              {firstReason || <span style={{ opacity: 0.35 }}>미작성</span>}
+                            </td>
+                            <td style={{ padding: "0.32rem 0.75rem", color: reasonChanged ? "#059669" : "var(--text-secondary)", fontWeight: reasonChanged ? 700 : "normal", fontSize: "0.75rem" }}>
+                              {finalReason || <span style={{ opacity: 0.35 }}>미작성</span>}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                /* ── 집계 비교 섹션 (A+B 혼합) ── */
+                <div>
+                  <div style={{ padding: "0.65rem 1.2rem", borderBottom: "1px solid rgba(0,0,0,0.08)", background: "rgba(0,0,0,0.02)", fontSize: "0.8rem", color: "var(--text-secondary)" }}>
+                    수익코드별 퇴원생 수 증감 — 행 클릭 시 사유 상세 펼치기
+                  </div>
+                  <table style={{ fontSize: "0.79rem", borderCollapse: "collapse", width: "100%" }}>
+                    <thead>
+                      <tr style={{ background: "rgba(0,0,0,0.03)", borderBottom: "1px solid rgba(0,0,0,0.08)" }}>
+                        <th style={{ padding: "0.4rem 0.75rem", textAlign: "left", color: "var(--text-secondary)" }}>수익코드</th>
+                        <th style={{ padding: "0.4rem 0.75rem", textAlign: "center", color: "#6b7280" }}>1차 인원</th>
+                        <th style={{ padding: "0.4rem 0.75rem", textAlign: "center", color: "#059669" }}>최종 인원</th>
+                        <th style={{ padding: "0.4rem 0.75rem", textAlign: "center", color: "var(--text-secondary)" }}>증감</th>
+                        <th style={{ padding: "0.4rem 0.75rem", textAlign: "center", color: "#6b7280" }}>1차 기조실확정</th>
+                        <th style={{ padding: "0.4rem 0.75rem", textAlign: "center", color: "#059669" }}>최종 기조실확정</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {compareResult.reportRows.map(row => {
+                        const isExpanded = compareExpandedCodes.has(row.code);
+                        const hasDelta = row.delta !== 0;
+                        const reasons = Object.entries(row.reasonBreakdown);
+                        return (
+                          <>
+                            <tr
+                              key={row.code}
+                              onClick={() => setCompareExpandedCodes(prev => {
+                                const next = new Set(prev);
+                                isExpanded ? next.delete(row.code) : next.add(row.code);
+                                return next;
+                              })}
+                              style={{ borderBottom: "1px solid rgba(0,0,0,0.06)", cursor: reasons.length > 0 ? "pointer" : "default", background: hasDelta ? "rgba(217,119,6,0.04)" : "transparent" }}
+                            >
+                              <td style={{ padding: "0.38rem 0.75rem", color: "#4f46e5", fontWeight: 700 }}>
+                                {reasons.length > 0 ? (isExpanded ? "▼ " : "▶ ") : "   "}{row.code}
+                              </td>
+                              <td style={{ padding: "0.38rem 0.75rem", textAlign: "center", color: "#6b7280" }}>{row.firstTotal}명</td>
+                              <td style={{ padding: "0.38rem 0.75rem", textAlign: "center", color: "#059669", fontWeight: 600 }}>{row.finalTotal}명</td>
+                              <td style={{ padding: "0.38rem 0.75rem", textAlign: "center", fontWeight: 700, color: row.delta > 0 ? "#dc2626" : row.delta < 0 ? "#2563eb" : "var(--text-secondary)" }}>
+                                {row.delta > 0 ? `▲ +${row.delta}` : row.delta < 0 ? `▼ ${row.delta}` : "—"}
+                              </td>
+                              <td style={{ padding: "0.38rem 0.75rem", textAlign: "center", color: "#6b7280" }}>{row.firstConfirmed}명</td>
+                              <td style={{ padding: "0.38rem 0.75rem", textAlign: "center", color: "#059669", fontWeight: 600 }}>{row.finalConfirmed}명</td>
+                            </tr>
+                            {isExpanded && reasons.map(([reason, counts]) => {
+                              const d = counts.final - counts.first;
+                              return (
+                                <tr key={row.code + reason} style={{ background: "rgba(79,70,229,0.04)", borderBottom: "1px solid rgba(0,0,0,0.04)" }}>
+                                  <td style={{ padding: "0.28rem 0.75rem 0.28rem 2rem", color: "var(--text-secondary)", fontSize: "0.76rem" }}>└ {reason}</td>
+                                  <td style={{ padding: "0.28rem 0.75rem", textAlign: "center", color: "#6b7280", fontSize: "0.76rem" }}>{counts.first}명</td>
+                                  <td style={{ padding: "0.28rem 0.75rem", textAlign: "center", color: "#059669", fontSize: "0.76rem" }}>{counts.final}명</td>
+                                  <td style={{ padding: "0.28rem 0.75rem", textAlign: "center", fontSize: "0.76rem", color: d > 0 ? "#dc2626" : d < 0 ? "#2563eb" : "var(--text-secondary)", fontWeight: d !== 0 ? 700 : "normal" }}>
+                                    {d > 0 ? `+${d}` : d < 0 ? `${d}` : "—"}
+                                  </td>
+                                  <td colSpan={2} />
+                                </tr>
+                              );
+                            })}
+                          </>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        </>
+      )}
 
       {/* 분류별 차이 팝업 */}
       {diffPopup && (
